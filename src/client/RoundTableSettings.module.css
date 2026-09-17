@@ -1,0 +1,395 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+  padding: 8px 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.select,
+.input {
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+  max-width: 260px;
+}
+
+.hint {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+  line-height: 1.6;
+}
+
+/* Minimal toggle switch. */
+.switchRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.switchInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switchTrack {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.35);
+  transition: background 140ms ease;
+  flex: none;
+}
+
+.switchTrack::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 140ms ease;
+}
+
+.switchInput:checked + .switchTrack {
+  background: #4d6bfe;
+}
+
+.switchInput:checked + .switchTrack::after {
+  transform: translateX(16px);
+}
+
+.switchLabel {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.warning {
+  font-size: 12px;
+  color: #a06b00;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(214, 158, 46, 0.12);
+  border: 1px solid rgba(214, 158, 46, 0.4);
+  line-height: 1.6;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.saveButton {
+  font-size: 13px;
+  padding: 7px 18px;
+  border-radius: 8px;
+  border: none;
+  background: #4d6bfe;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.saved {
+  font-size: 12px;
+  color: #10a37f;
+}
+
+.failed {
+  font-size: 12px;
+  color: #c62828;
+}
+
+.note {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.sectionDivider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 2px 0;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+/* ---------- R3：右栏面板显示（点圆圈决定显示/隐藏） ---------- */
+
+.panelToggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.panelToggleOn,
+.panelToggleOff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+/* 点亮 = 显示；暗掉 = 隐藏。 */
+.panelToggleOn {
+  border: 1px solid rgba(77, 107, 254, 0.45);
+  background: rgba(77, 107, 254, 0.10);
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.panelToggleOff {
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  color: rgba(0, 0, 0, 0.38);
+}
+
+.panelDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid transparent;
+}
+
+.panelToggleOn .panelDot {
+  background: #4d6bfe;
+}
+
+.panelToggleOff .panelDot {
+  background: transparent;
+  border-color: rgba(128, 128, 128, 0.6);
+}
+
+.panelToggleLabel {
+  line-height: 1;
+}
+
+.feedbackNote {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+  background: rgba(77, 107, 254, 0.06);
+  border-left: 3px solid rgba(77, 107, 254, 0.3);
+  padding: 6px 10px;
+  border-radius: 0 8px 8px 0;
+  line-height: 1.6;
+}
+
+.feedbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.feedbackItem {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
+}
+
+.feedbackMeta {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.feedbackNoteText {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.feedbackClearBtn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(198, 40, 40, 0.4);
+  background: transparent;
+  color: #c62828;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.feedbackClearBtn:hover {
+  background: rgba(198, 40, 40, 0.06);
+}
+
+/* ---------- B3：用户自建角色预设（扁平、克制，与 panelToggles 同观感） ---------- */
+
+.presetList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.presetItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.presetInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.presetName {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+}
+
+.presetMeta {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.presetRoute {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.presetActions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.presetBtn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+}
+
+.presetBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.presetDeleteBtn {
+  border-color: rgba(198, 40, 40, 0.35);
+  color: #c62828;
+}
+
+.presetDeleteBtn:hover {
+  background: rgba(198, 40, 40, 0.06);
+}
+
+.presetForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px dashed rgba(128, 128, 128, 0.35);
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.presetFormRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.presetModelRow {
+  display: flex;
+  gap: 8px;
+}
+
+.presetSelect {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.presetFormActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.presetAddBtn {
+  font-size: 13px;
+  padding: 7px 18px;
+  border-radius: 8px;
+  border: none;
+  background: #4d6bfe;
+  color: #ffffff;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.presetCancelBtn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.presetCancelBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}

@@ -1,0 +1,1652 @@
+.root {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+/* ---------- main column ---------- */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meetingName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.meetingSelect {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.45);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.8);
+  max-width: 220px;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.round {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* 标题区「针锋相对」入口：可点击打开评审窗口 */
+.reviewBadge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(198, 40, 40, 0.45);
+  background: rgba(198, 40, 40, 0.06);
+  color: #c62828;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 120ms ease;
+}
+
+.reviewBadge:hover {
+  background: rgba(198, 40, 40, 0.14);
+}
+
+/* 右栏「分针记录」摘要卡片：可点击打开评审窗口 */
+.reviewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  width: 100%;
+  border: 1px solid rgba(198, 40, 40, 0.25);
+  border-radius: 8px;
+  background: rgba(198, 40, 40, 0.05);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.reviewCard:hover {
+  background: rgba(198, 40, 40, 0.1);
+}
+
+.reviewCardTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.reviewCardMeta {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+/* 会议删除按钮：固定在右栏顶部操作条（不再挤在标题行最右，窄屏也能看到）。 */
+.meetingDelete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.meetingDelete:hover {
+  opacity: 1;
+  border-color: #c62828;
+  color: #c62828;
+}
+
+.budgetRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.budgetLabel {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.budgetBar {
+  width: 90px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.18);
+  overflow: hidden;
+}
+
+.budgetFill {
+  height: 100%;
+  border-radius: 999px;
+  background: #4d6bfe;
+}
+
+.budgetFillTokens {
+  height: 100%;
+  border-radius: 999px;
+  background: #10a37f;
+}
+
+.budgetValue {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.65);
+  font-variant-numeric: tabular-nums;
+}
+
+.decisionBanner {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(214, 158, 46, 0.12);
+  border: 1px solid rgba(214, 158, 46, 0.4);
+}
+
+.decisionTag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #a06b00;
+  flex: none;
+}
+
+.decisionQuestion {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+/* ---------- topology canvas ---------- */
+
+.canvas {
+  position: relative;
+  flex: 1;
+  min-width: 320px;
+  min-height: 420px;
+  border-radius: 12px;
+  background: #fafafa;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  overflow: hidden;
+}
+
+.edgeLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.edgeGroup {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.edgeGroup path {
+  pointer-events: stroke;
+}
+
+/* Hover delete affordance: a red circle with an X floating ABOVE the canvas
+   at the edge's midpoint. It lives in a top layer (not the SVG, which sits
+   under the nodes) so a midpoint that lands inside a node is never hidden.
+   Revealed while the edge (or the button itself) is hovered. */
+.edgeRemove {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #c62828;
+  border: 1.5px solid #ffffff;
+  color: #ffffff;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+}
+
+.edgeRemoveActive {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.edgeRemove:hover {
+  opacity: 1;
+  pointer-events: auto;
+  background: #b71c1c;
+}
+
+.edgeForward {
+  stroke: rgba(90, 90, 90, 0.5);
+  stroke-width: 1.5;
+}
+
+.edgeBidirectional {
+  stroke: rgba(77, 107, 254, 0.7);
+  stroke-width: 1.6;
+}
+
+.edgeArrow {
+  fill: rgba(90, 90, 90, 0.7);
+}
+
+.edgeSynthetic {
+  stroke: rgba(90, 90, 90, 0.28);
+  stroke-width: 1.3;
+  stroke-dasharray: 4 4;
+}
+
+.edgeArrowSynthetic {
+  fill: rgba(90, 90, 90, 0.38);
+}
+
+/* Role-based accents so the topology reads at a glance: captain is the single
+   "everything radiates from here" hub (warm gold), aggregator is the sink
+   (cool teal), and expert↔expert wires stay neutral grey. */
+.edgeCaptain {
+  stroke: rgba(214, 158, 46, 0.85);
+  stroke-width: 1.8;
+}
+
+.edgeAggregator {
+  stroke: rgba(16, 163, 127, 0.8);
+  stroke-width: 1.6;
+}
+
+.edgeSyntheticCaptain {
+  stroke: rgba(214, 158, 46, 0.45);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 4;
+}
+
+.edgeSyntheticAggregator {
+  stroke: rgba(16, 163, 127, 0.4);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 4;
+}
+
+.edgeArrowCaptain {
+  fill: rgba(214, 158, 46, 0.9);
+}
+
+.edgeArrowAggregator {
+  fill: rgba(16, 163, 127, 0.85);
+}
+
+.edgeArrowSyntheticCaptain {
+  fill: rgba(214, 158, 46, 0.5);
+}
+
+.edgeArrowSyntheticAggregator {
+  fill: rgba(16, 163, 127, 0.45);
+}
+
+.dragLine {
+  stroke: #4d6bfe;
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+/* One-shot message pulse traveling from sender to receiver. */
+.msgPulse {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #4d6bfe;
+  box-shadow: 0 0 10px 2px rgba(77, 107, 254, 0.7);
+  pointer-events: none;
+  z-index: 4;
+  animation: rt-msg-flow 1.1s ease-out forwards;
+}
+
+@keyframes rt-msg-flow {
+  0% {
+    transform: translate(var(--rt-fx), var(--rt-fy)) translate(-50%, -50%);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--rt-tx), var(--rt-ty)) translate(-50%, -50%);
+    opacity: 0;
+  }
+}
+
+.node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: #ffffff;
+  border: 1.5px solid rgba(120, 120, 120, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  z-index: 2;
+}
+
+.captainNode {
+  width: 96px;
+  height: 88px;
+  border-radius: 12px;
+  background: #202124;
+  border: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.captainNode .nodeLabel {
+  color: #e8eaed;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.aggregatorNode {
+  width: 74px;
+  height: 74px;
+  border-radius: 14px;
+  background: #f3f4f6;
+  border: 1.5px dashed rgba(120, 120, 120, 0.5);
+}
+
+.nodeLabel {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.85);
+  text-align: center;
+  line-height: 1.3;
+  max-width: 62px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Captain/aggregator labels are longer ("DeepSeek · 主持", "汇聚网关") and are
+   clipped into "DeepSee…" by the 62px default. Give them room to wrap to two
+   lines so the full name shows — the truncation was hiding the final "K" and
+   broke the reading of the host's name. */
+.captainNode .nodeLabel,
+.aggregatorNode .nodeLabel {
+  max-width: 86px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+
+/* 厂商 logo 图：圆形裁切 + contain 防切边，品牌色底垫在透明图后面。 */
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: contain;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.avatarAbbr {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+
+.nodeMeta {
+  font-size: 10px;
+  color: #10a37f;
+  min-height: 12px;
+}
+
+/* A node that was added then removed: keep it visible so the topology still
+   shows which models participated, but degrade it (greyed, no pulse, muted). */
+.nodeRemoved {
+  background: #f4f4f4;
+  border-color: rgba(128, 128, 128, 0.35);
+  box-shadow: none;
+  opacity: 0.72;
+}
+
+.nodeRemoved .nodeLabel {
+  color: rgba(0, 0, 0, 0.5);
+  text-decoration: line-through;
+}
+
+.nodeRemoved .avatar {
+  filter: grayscale(0.8);
+  opacity: 0.85;
+}
+
+/* Breathing light: low-opacity pulse, pure CSS — zero tokens. */
+.breathing {
+  animation: roundtable-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes roundtable-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(77, 107, 254, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-color: rgba(77, 107, 254, 0.75);
+  }
+  50% {
+    box-shadow: 0 0 0 9px rgba(77, 107, 254, 0), 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-color: rgba(77, 107, 254, 0.45);
+  }
+}
+
+/* Connector ports: small hit-dots on the node rim that a connector grows out
+   of (a Dify-style workflow port). Four per node; each is a 10px circle that
+   brightens on hover to signal "drag from here to wire an edge". The dots sit
+   outside the node circle so the wire visibly starts at the expert's edge. */
+.port {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #4d6bfe;
+  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.15);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  z-index: 4;
+}
+
+.node:hover .port,
+.port:focus-visible {
+  opacity: 1;
+}
+
+.port:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 4px rgba(77, 107, 254, 0.28);
+  background: #4d6bfe;
+}
+
+/* Placement: centered on each rim, slightly outside the 68px circle. */
+.portN { top: -7px; left: calc(50% - 5.5px); }
+.portE { right: -7px; top: calc(50% - 5.5px); }
+.portS { bottom: -7px; left: calc(50% - 5.5px); }
+.portW { left: -7px; top: calc(50% - 5.5px); }
+
+/* Larger captain/aggregator rims need the ports pushed a touch further out. */
+.captainNode .portN { top: -9px; }
+.captainNode .portS { bottom: -9px; }
+.captainNode .portE { right: -9px; }
+.captainNode .portW { left: -9px; }
+.aggregatorNode .portN { top: -8px; }
+.aggregatorNode .portS { bottom: -8px; }
+.aggregatorNode .portE { right: -8px; }
+.aggregatorNode .portW { left: -8px; }
+
+/* While a connector is being dragged, keep every port visible so the user can
+   see exactly where they may drop — ports otherwise only appear on hover. */
+.canvasDragging .port {
+  opacity: 0.6;
+}
+
+/* ---------- gateway digest ---------- */
+
+.digest {
+  flex: none;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 10px;
+  background: #fdfdfd;
+  font-size: 12px;
+}
+
+.digest summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.digestBody {
+  margin: 0;
+  padding: 0 10px 10px;
+  max-height: 180px;
+  overflow: auto;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- sidebar ---------- */
+
+.sidebar {
+  width: 264px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* 右栏顶部操作条：删除会议 + 待办徽标（固定位置，窄屏可见）。 */
+.sidebarActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+}
+
+.pendingBadge {
+  font-size: 11px;
+  color: #b26a00;
+  background: rgba(255, 193, 7, 0.14);
+  border: 1px solid rgba(255, 193, 7, 0.5);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* 专家行"待移除"标记（用户已删除、主持人下一轮执行）。 */
+.agentQueuedRemove {
+  font-size: 10px;
+  color: #b26a00;
+  flex: none;
+  font-weight: 600;
+}
+
+.panel {
+  flex: none;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 10px;
+  background: #fdfdfd;
+  overflow: hidden;
+}
+
+.panelTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  background: #fafafa;
+}
+
+.panelTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.panelAdd {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+}
+
+.panelAdd:hover {
+  border-color: #4d6bfe;
+  color: #4d6bfe;
+}
+
+.panelBody {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.agentRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agentAvatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.agentAbbr {
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.agentInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.agentName {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.agentRole {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agentStatus {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+
+.agentStatusWorking {
+  font-size: 10px;
+  color: #10a37f;
+  flex: none;
+  font-weight: 600;
+}
+
+.agentRowRemoved {
+  opacity: 0.6;
+}
+
+.agentRowRemoved .avatar,
+.agentRowRemoved .agentAvatar {
+  filter: grayscale(0.8);
+}
+
+.agentRowRemoved .agentName {
+  color: rgba(0, 0, 0, 0.5);
+  text-decoration: line-through;
+}
+
+.agentStatusRemoved {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.4);
+  font-style: italic;
+  flex: none;
+}
+
+.taskRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.taskToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+}
+
+.taskToggle:hover {
+  background: rgba(77, 107, 254, 0.08);
+}
+
+.taskChevron {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+  width: 12px;
+  flex: none;
+}
+
+.taskKey {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+/* Collapsed: always a single line with an ellipsis, regardless of length. */
+.taskRole {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+}
+
+/* Expanded: full role, wrapped. */
+.taskRoleExpanded {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.panelEmpty {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+  line-height: 1.5;
+}
+
+.logRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(128, 128, 128, 0.15);
+}
+
+.logRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.logHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.logFrom {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(77, 107, 254, 0.9);
+}
+
+.logTime {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.logText {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.65);
+  line-height: 1.45;
+}
+
+/* ---------- context menu ---------- */
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 170px;
+  background: #ffffff;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.contextMenuTitle {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  padding: 4px 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  margin-bottom: 4px;
+}
+
+.contextMenuItem,
+.contextMenuItemDanger {
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.contextMenuItem:hover {
+  background: rgba(77, 107, 254, 0.1);
+}
+
+.contextMenuItemDanger {
+  color: #c62828;
+}
+
+.contextMenuItemDanger:hover {
+  background: rgba(198, 40, 40, 0.08);
+}
+
+/* ---------- empty / error ---------- */
+
+.emptyState {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.75);
+}
+
+.emptyHint {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.5);
+  max-width: 420px;
+  line-height: 1.6;
+}
+
+.fetchFailed {
+  font-size: 11px;
+  color: #c62828;
+}
+
+/* Connect-result toast: a short-lived banner at the top of the topology
+   canvas telling the user whether a dragged wire landed. Without it a failed
+   edge.add (e.g. wiring a removed node) was silently swallowed — the user saw
+   nothing and assumed the drag did nothing. White card, black text, no tilt:
+   the label sits on a single centered baseline. */
+.toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: 90%;
+  background: #ffffff;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  padding: 8px 16px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.toastOk {
+  font-size: 12.5px;
+  color: #1a1a1a;
+  font-weight: 500;
+}
+
+.toastErr {
+  font-size: 12.5px;
+  color: #b3261e;
+  font-weight: 500;
+}
+
+/* ---------- expert management modal (panel "+" buttons) ---------- */
+
+.manageOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manageModal {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manageTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.managePendingNote {
+  font-size: 11px;
+  color: #7a5b00;
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.45);
+  border-radius: 8px;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+
+.manageSectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+  margin-top: 2px;
+}
+
+.manageList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fafafa;
+}
+
+.manageRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.managePendingAvatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: rgba(255, 193, 7, 0.25);
+  color: #b26a00;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.manageStatusTag {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+
+.managePendingTag {
+  font-size: 10px;
+  color: #b26a00;
+  background: rgba(255, 193, 7, 0.15);
+  border-radius: 999px;
+  padding: 2px 8px;
+  flex: none;
+  font-weight: 600;
+}
+
+.manageRemoveBtn {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(198, 40, 40, 0.4);
+  background: #ffffff;
+  color: #c62828;
+  cursor: pointer;
+  flex: none;
+}
+
+.manageRemoveBtn:hover {
+  background: rgba(198, 40, 40, 0.08);
+}
+
+.manageForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.manageFormRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.manageLabel {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.65);
+  width: 40px;
+  flex: none;
+}
+
+.manageInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.manageSelect {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.manageAddBtn {
+  align-self: flex-end;
+  font-size: 12px;
+  padding: 4px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #4d6bfe;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.manageAddBtn:hover {
+  background: #3b58e8;
+}
+
+.manageFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  padding-top: 10px;
+}
+
+.manageHint {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  line-height: 1.5;
+}
+
+.manageCloseBtn {
+  font-size: 12px;
+  padding: 4px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  flex: none;
+}
+
+.manageCloseBtn:hover {
+  border-color: #4d6bfe;
+  color: #4d6bfe;
+}
+
+/* ---------- 右栏面板可见性（R3：设置页点圆圈决定显示） ---------- */
+
+/* 被用户关掉的面板不渲染（右栏因此变短，拓扑区自然变大）。 */
+.panelHidden {
+  display: none !important;
+}
+
+/* ---------- knowledge base (阅览版) ---------- */
+
+/* skill 传递方式的简短标注（与面板标题同一行，保持界面工整）。 */
+.skillDeliveryLabel {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+  font-weight: 400;
+}
+
+.kbPathRow {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.65);
+  background: rgba(77, 107, 254, 0.07);
+  border: 1px solid rgba(77, 107, 254, 0.25);
+  border-radius: 6px;
+  padding: 5px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-all;
+}
+
+.kbPathForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.kbChangedRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  user-select: none;
+}
+
+.switchInput {
+  accent-color: #4d6bfe;
+  cursor: pointer;
+}
+
+.kbList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fafafa;
+}
+
+.kbRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.kbKindDir,
+.kbKindFile {
+  font-size: 13px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.kbName {
+  flex: 1;
+  min-width: 0;
+  color: rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kbMeta {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+
+.kbError {
+  font-size: 12px;
+  color: #c62828;
+  line-height: 1.5;
+}
+
+/* ---------- 针锋相对评审弹窗（三区布局） ---------- */
+
+.reviewModal {
+  width: 860px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reviewBody {
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+}
+
+.reviewLeft {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-right: 1px solid rgba(128, 128, 128, 0.15);
+  padding-right: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.reviewRight {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reviewSectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.reviewQuestion {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  background: rgba(77, 107, 254, 0.07);
+  border: 1px solid rgba(77, 107, 254, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.reviewPlan {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.75);
+  background: #fafafa;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.reviewList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.reviewItem {
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fdfdfd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reviewItemHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reviewNode {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+  flex: 1;
+}
+
+.reviewSeq {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reviewEndorsed {
+  font-size: 10px;
+  color: #c62828;
+  background: rgba(198, 40, 40, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.reviewContent {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.8);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reviewActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reviewSupport {
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(198, 40, 40, 0.45);
+  background: #ffffff;
+  color: #c62828;
+  cursor: pointer;
+}
+
+.reviewSupport:hover {
+  background: rgba(198, 40, 40, 0.08);
+}
+
+.reviewSupportDone {
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(198, 40, 40, 0.3);
+  background: rgba(198, 40, 40, 0.08);
+  color: #c62828;
+  cursor: default;
+}
+
+.reviewDimension {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.reviewQuote {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.04);
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  padding: 4px 8px;
+  border-radius: 0 6px 6px 0;
+  line-height: 1.5;
+}
+
+.reviewPending {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 500;
+}
+
+.reviewRejected {
+  font-size: 10px;
+  color: #2e7d32;
+  background: rgba(46, 125, 50, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+
+.reviewReject {
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(46, 125, 50, 0.45);
+  background: #ffffff;
+  color: #2e7d32;
+  cursor: pointer;
+  margin-left: 8px;
+}
+
+.reviewReject:hover {
+  background: rgba(46, 125, 50, 0.08);
+}
+
+.reviewRejectDone {
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(46, 125, 50, 0.3);
+  background: rgba(46, 125, 50, 0.08);
+  color: #2e7d32;
+  cursor: default;
+  margin-left: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breathing {
+    animation: none;
+    border-color: rgba(77, 107, 254, 0.6);
+  }
+}
+
+.reviewPassBadge {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.reviewEvidence {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  background: rgba(25, 118, 210, 0.06);
+  border-left: 3px solid rgba(25, 118, 210, 0.35);
+  padding: 4px 8px;
+  border-radius: 0 6px 6px 0;
+  line-height: 1.5;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.reviewEvidenceLabel {
+  font-weight: 600;
+}
+
+.reviewRejectReason {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  padding: 4px 8px;
+  border-radius: 0 6px 6px 0;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.reviewRejectBox {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reviewRejectLabel {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.reviewRejectInput {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+  resize: vertical;
+  min-height: 34px;
+  font-family: inherit;
+}
+
+.reviewRejectActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.reviewImpactBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.reviewImpactWarn {
+  background: rgba(237, 108, 2, 0.1);
+  color: #b26a00;
+  font-weight: 500;
+}
+
+.feedbackBar {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feedbackBarTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.8);
+  line-height: 1.5;
+}
+
+.feedbackBarActions {
+  display: flex;
+  gap: 6px;
+}
+
+.feedbackRating {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(77, 107, 254, 0.4);
+  background: rgba(77, 107, 254, 0.06);
+  color: #4d6bfe;
+  cursor: pointer;
+}
+
+.feedbackRating:hover {
+  background: rgba(77, 107, 254, 0.14);
+}
+
+.feedbackBarNote {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+  font-family: inherit;
+}
+
+.feedbackBarFooter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.feedbackSkip {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.feedbackSkip:hover {
+  color: rgba(0, 0, 0, 0.8);
+}
