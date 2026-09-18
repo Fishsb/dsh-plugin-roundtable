@@ -519,16 +519,6 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               return ok({ path: configured, configured: true, error: listing.error, files: listing.files })
             })
           }
-          case 'roundtable/review.get': {
-            // 针锋相对评审状态：前端评审弹窗轮询此接口。
-            const body = payload as { meetingId?: unknown } | undefined
-            const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
-            if (meetingId === '') return fail('payload must be { meetingId }')
-            return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
-              const review = await readReview(stateRoot, meetingId)
-              return ok({ review: review ?? null })
-            })
-          }
           case 'roundtable/review.endorse': {
             // V0.2.1 兼容别名：映射到三态 setStatus('endorsed')。
             const body = payload as { meetingId?: unknown; viewpointId?: unknown } | undefined

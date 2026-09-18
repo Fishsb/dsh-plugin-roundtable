@@ -71,29 +71,3 @@ export async function listInvocableSkills(
     .filter((summary) => summary.invocation?.modelInvocable !== false)
     .sort((left, right) => left.name.localeCompare(right.name))
 }
-
-/**
- * 读取一个 skill 的正文（relay 模式下主持人转交用）。
- * 未挂载服务或 skill 不存在时返回 undefined。
- */
-export async function readSkillBody(
-  ctx: Context,
-  name: string,
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<SkillDefinitionLike | undefined> {
-  const registry = skillRegistryOf(ctx)
-  if (registry === undefined) return undefined
-  try {
-    return await registry.get(name, { cwd, ...(signal !== undefined ? { signal } : {}) })
-  } catch {
-    return undefined
-  }
-}
-
-/** 把清单渲染成卡片/工具输出用的一行行文本。 */
-export function formatSkillLine(summary: SkillSummaryLike): string {
-  const description = summary.description.trim() === '' ? '' : ` — ${summary.description.trim()}`
-  const source = summary.source === undefined || summary.source === '' ? '' : ` [${summary.source}]`
-  return `- \`${summary.name}\`${description}${source}`
-}

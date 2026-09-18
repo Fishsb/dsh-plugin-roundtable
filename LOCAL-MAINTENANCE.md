@@ -47,6 +47,32 @@ C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable
 
 **改法**：`nodeToolRestriction(skillDelivery, isRegistered?)` 过滤 allow/deny，`spawnNode` 传入 `ctx.tools.get(name, captain) !== undefined`。查询以主持人视角进行是刻意的——`deny` 里的主持人专属工具在主持人视角下存在，必须保留才能真正挡住节点。
 
+### 3. 主持人单一出口（R-B）—— 新增（v0.2.36）
+
+**问题**：宿主 `dsh-subagent` 给每个 continuable 子代理的任务尾部硬编码追加"finish 前用 `send_message` 回传 parent"指引（`continuation-messages.withContinuableReturnGuidance`）。后果：专家正文逐条刷进主会话、主持人汇总形同虚设、决策卡片被后续专家输出顶掉、专家选定的方向在最终汇总里丢失。
+
+**改法（三道闸 + 收料闭环）**：
+- `NODE_DENIED_TOOLS` += 宿主 `send_message`（direct 白名单同步移除）——正文回传物理封死，产出只剩 `roundtable_speak`；
+- persona 反指引：说破宿主回传要求，防止撞 deny 后重试；
+- 发言格式：`[核心产出]` 自包含 + 单列 `[建议决策]` 行；aggregator 提取进 digest；
+- usage 协议第 14 条：settlement 唤醒 = 收料时机（只 summarize 不播报）；全节点 idle 后一次汇总；决策前全 idle 检查；close 前必须已交付最终汇总。
+- 信息不丢的机制：宿主结算通知仍会唤醒主持人（idle→queue / 忙→steer），transcript 是权威账本，每次结算强制过账。
+
+**顺带修复**：①轮数预算从未生效（`beginRound` 是死代码，`meeting.round` 恒 0）→ 新增 captain-only 工具 `roundtable_next_round`，协议要求每轮派发前调用；②redteam 会议 persona 误标"主持人统筹"→ modeRule 三分支。
+
+**已知边界**：宿主单行 settlement notice（无正文）仍在主会话，插件不可控。旧会议节点按旧 persona 运行到重建，新建会议即全覆盖。
+
+### 4. 成员感知同步（R-C）—— 新增（v0.2.36）
+
+**问题**：persona/总纲的名册是 spawn 时刻的编译快照，中途 add/remove 专家后在跑的节点和主持人都拿着过期名册。
+
+**架构（两层模型）**：meeting.json 是名册唯一权威（持久层，锁保护）；persona/总纲只是快照（上下文层，不可更新）。不变量：拉取为主（`roundtable_status` nodes[] = 唯一权威名册），推送为辅（广播补偿快照），推送走 captain→node 会议内通道（不破坏 R-B 单一出口）。
+
+- W1 `charter.ts`：名册表下加"编译时刻快照，当前以 roundtable_status nodes[] 为准"声明；
+- W2 `members.ts`：modeRule 三分支统一带 rosterHint；`nodeWelcome` 按模式分叉（平等=可直达+先查册；红队=只报主持人；统筹=等派单），收尾统一查册句；
+- W3 `index.ts`：usage 规则 5 每轮开头一次 status 查册（与规则 9 pending_actions 合并为一次调用）；规则 3/9 名册变更（含 UI 操作落地后）派新任务前必须 `to="all"` 广播；
+- W4 `tools.ts`：`roundtable_send_message` 支持 `to="all"`（导出纯函数 `broadcastRecipients`：已出生、未 removed、排除发起者，节点发起时主持人恒在列）；锁内逐受众记转录、锁后扇出，返回 `key:wake|live|dropped` 逗号串；空受众抛错；非 egalitarian 节点发 all 仍被"只报主持人"闸门拦下。
+
 ## 二、改动落在哪些文件
 
 | 文件 | 改动 |
@@ -58,11 +84,26 @@ C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable
 | `test/preset-binding.test.mjs` | 新增 8 例（import 用到的 `resolvePreset` 必须 export） |
 | `test/tool-restriction.test.mjs` | 新增 10 例 |
 | `test/plan.test.mjs` | 新增 3 例（卡片来源标注 / 未解析告警 / 不误报） |
+| `src/members.ts` (R-B) | deny += `send_message` / `roundtable_next_round`；allow -= `send_message`；persona 反指引 + modeRule 三分支 |
+| `src/charter.ts` (R-B) | 第三节：`[核心产出]` 自包含、`[建议决策]` 行、单一出口原则 |
+| `src/aggregator.ts` (R-B) | digest 提取 `[建议决策]` 附到条目 |
+| `src/index.ts` (R-B) | usage 第 5/6 条改写 + 新增第 14 条单一出口纪律；工具清单加 `roundtable_next_round` |
+| `src/tools.ts` (R-B) | 新工具 `roundtable_next_round`（beginRound + 超限持久化 muted） |
+| `test/tool-restriction.test.mjs` (R-B) | +3 例 |
+| `test/budget.test.mjs` (R-B) | +4 例（beginRound / 触顶闭麦 / 解麦联动） |
+| `test/aggregator.test.mjs` / `test/persona.test.mjs` (R-B) | 新建（4 + 4 例） |
+| `src/charter.ts` (R-C) | 名册表下加快照新鲜度声明（W1） |
+| `src/members.ts` (R-C) | modeRule 三分支 rosterHint + `nodeWelcome` 按模式分叉（W2） |
+| `src/index.ts` (R-C) | usage 规则 3/5/9：每轮一次 status 查册 + 名册变更 `to="all"` 广播义务（W3） |
+| `src/tools.ts` (R-C) | `roundtable_send_message` 支持 `to="all"`；导出纯函数 `broadcastRecipients`（W4） |
+| `test/broadcast.test.mjs` (R-C) | 新建 4 例（广播受众集合 / 空名册边界） |
+| `test/persona.test.mjs` (R-C) | +4 例（rosterHint 三分支 / welcome 分叉 / 查册收尾句 / charter 快照声明） |
 
-## 三、当前状态（2026-09-17 16:33 实测，迁入工作区后重跑）
+## 三、当前状态（2026-09-19 03:05 实测，R-C 落地后）
 
-- `tsc` host + client **双端 0 错误**；`node --test` **77/77 全绿**
-- `tsdown` 构建通过：`lib/index.js` 168,382 bytes / `lib/client.js` 526,348 bytes
+- 版本 `0.2.36`（package.json 与 src/version.ts 逐字一致闸门通过）
+- `tsc` host + client **双端 0 错误**；`node --test` **100/100 全绿**（R-A 后 77 + R-B 15 + R-C 8）
+- `tsdown` 构建通过：`lib/index.js` 177,562 bytes / `lib/client.js` 526,653 bytes
 - 运行态：热重载后 `roundtable_list_presets` 实测返回 27 条（filter 亦生效）
 - 部署链：`profiles/web/node_modules/@huanlin/dsh-plugin-roundtable` → junction → 本目录
 

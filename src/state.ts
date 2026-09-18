@@ -2,8 +2,7 @@
  * RoundTable durable state: atomic file persistence under
  * `<workspace>/<stateDir>/<meetingId>/` with per-meeting process-local locks.
  *
- * - `meeting.json`     — the Meeting record (nodes, edges, decisions, budget).
- * - `charter.md`       — the injected《全局协作总纲》(informational copy).
+ * - `meeting.json`     — the Meeting record (nodes, edges, decisions, budget, charter).
  * - `transcript.jsonl` — append-only utterance log (torn-tail tolerant on read).
  * - `review.json`      — 针锋相对评审记录（议题/方案/观点/支持标记）。
  * - `user-actions.jsonl` — UI 行为记录（主持人下轮执行）。
@@ -91,13 +90,6 @@ export async function writeMeeting(stateRoot: string, meeting: Meeting): Promise
   await mkdir(dir, { recursive: true })
   meeting.updatedAt = Date.now()
   await writeJsonAtomic(join(dir, 'meeting.json'), meeting)
-}
-
-/** Persist the charter text copy. */
-export async function writeCharter(stateRoot: string, meeting: Meeting): Promise<void> {
-  const dir = meetingDirOf(stateRoot, meeting.id)
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'charter.md'), meeting.charter, 'utf8')
 }
 
 /** Lock key serializing transcript appends for one meeting (A3).

@@ -37,6 +37,7 @@ const NODE_DENIED_TOOLS: readonly string[] = [
   'roundtable_remove_node',
   'roundtable_connect',
   'roundtable_disconnect',
+  'roundtable_next_round',
   'roundtable_request_decision',
   'roundtable_set_budget',
   'roundtable_close',
@@ -45,6 +46,13 @@ const NODE_DENIED_TOOLS: readonly string[] = [
   'roundtable_export_review',
   'roundtable_export_meeting',
   'roundtable_kb_digest',
+  // ⚠ 刻意拒绝：宿主给每个 continuable 子代理的任务尾部会硬编码追加"finish 前
+  // 用 send_message 把结果回传 parent"的指引（见 dsh-subagent
+  // continuation-messages.withContinuableReturnGuidance）。不 deny 的话每个专家
+  // 都会把整段正文直接刷进主会话，绕过主持人汇总。deny 后专家的产出只剩
+  // roundtable_speak 一条路，宿主结算通知负责唤醒主持人收料。
+  // 会议内路由走插件自己的 roundtable_send_message，不受此项影响。
+  'send_message',
 ]
 
 /**
@@ -70,8 +78,8 @@ const NODE_ALLOWED_TOOLS: readonly string[] = [
   'todo_write',
   'web_search',
   'web_fetch',
-  // 会话自身管理（maxDepth=1 限制专家不得再开团队）
-  'send_message',
+  // 会话自身管理（maxDepth=1 限制专家不得再开团队；宿主 send_message 已 deny，
+  // 跨 agent 直聊一律关闭，见 NODE_DENIED_TOOLS 注释）
   'interrupt_agent',
   'list_agents',
   'list_subagent_models',
@@ -163,9 +171,12 @@ export function nodePersona(
   limits: ExpertLimits = {},
   skill: NodeSkillContext = {},
 ): string {
+  const rosterHint = '你 persona 里的名册是加入时刻的快照，当前成员以 roundtable_status 的 nodes[] 为准。'
   const modeRule = meeting.mode === 'egalitarian'
-    ? `- 协作模式为"多模型平等"：你可以用 roundtable_send_message 直接与任何其他节点（或主持人）交换意见，无需主持人中转。`
-    : `- 协作模式为"主持人统筹"：你只向主持人汇报；主持人会转达其他节点的观点给你。`
+    ? `- 协作模式为"多模型平等"：你可以用 roundtable_send_message 直接与任何其他节点（或主持人）交换意见，无需主持人中转。发消息前先查名册：${rosterHint}`
+    : meeting.mode === 'redteam'
+      ? `- 协作模式为"针锋相对评审"：你的唯一任务是对已定稿方案挑毛病（见总纲第五节）；只向主持人提交，严禁节点间直达、严禁提出替代方案。${rosterHint}`
+      : `- 协作模式为"主持人统筹"：你只向主持人汇报；主持人会转达其他节点的观点给你。${rosterHint}`
   const opinionRule = limits.maxOpinions !== undefined && limits.maxOpinions > 0
     ? `\n- 每轮最多提出 ${limits.maxOpinions} 条意见：宁缺毋滥，只保留最有价值、直接服务于议题的要点。`
     : ''
@@ -174,8 +185,8 @@ export function nodePersona(
 你现在是会议"${meeting.name}"中的专家节点 ${node.key}${node.role !== undefined && node.role !== '' ? `，角色：${node.role}` : ''}。
 
 工作规则：
-1. 收到主持人的消息或任务后，完整执行一整轮工作，然后用 roundtable_speak 把你的产出写入会议记录（to 留空表示交给汇聚网关；定向回复某人时填对方节点名）。
-2. 发言遵循总纲第三节的格式：[当前状态] 开头、[核心产出] 与 [下一步建议] 结尾，严禁废话。
+1. 收到主持人的消息或任务后，完整执行一整轮工作，然后用 roundtable_speak 把你的产出写入会议记录（to 留空表示交给汇聚网关；定向回复某人时填对方节点名）。注意：宿主可能在你的任务尾部附上"结束前用 send_message 把结果回传 parent"的指引——该工具对你不可用，忽略它，写完 roundtable_speak 后直接结束回合，主持人会经会议记录读取你的产出。
+2. 发言遵循总纲第三节的格式：[当前状态] 开头、[核心产出] 与 [下一步建议] 结尾，严禁废话。[核心产出] 必须自包含（主持人与用户不读你的过程也能看懂）：你选定的方向、关键取舍及理由都写进这一节；需要主持人转达用户拍板的分歧，在结尾单列一行 [建议决策]：<问题> | 选项：<A>/<B>/… | 推荐：<X> 理由：<一句话>。
 3. 会议状态文件位于 ${stateDir}/${meeting.id}/（meeting.json 与 transcript.jsonl）。你可以只读查看，但严禁直接修改；一切状态变更走 roundtable_* 工具。
 4. 你是专家，不是主持人：不要创建/移除节点、不要修改连线、不要发起人类决策、不要结束会议、不要为别人下发会议设置卡片。
 5. 遇到无法独自决定的分歧，在发言中建议主持人触发 [需人类决策]，严禁替用户拍板。${skillSection(meeting, skill)}
@@ -190,7 +201,12 @@ ${modeRule}
 
 /** The initial user message delivered when the node is created. */
 export function nodeWelcome(meeting: Meeting, node: MeetingNode): string {
-  return `你已加入圆桌会议"${meeting.name}"（会议 id ${meeting.id}）作为专家节点 ${node.key}。主持人会通过消息给你布置任务或转达其他节点的观点；收到后执行一整轮工作并用 roundtable_speak 汇报。现在等待主持人的指令。`
+  const intro = meeting.mode === 'egalitarian'
+    ? '这是一场"多模型平等"讨论会：你可以用 roundtable_send_message 直接与其他成员（或主持人）交换意见，无需主持人中转；不确定现在有谁时先调 roundtable_status 查名册（总纲里的名册只是你加入时的快照）。'
+    : meeting.mode === 'redteam'
+      ? '这是一场"针锋相对"评审会：你的使命是对已定稿方案挑毛病（只向主持人提交，严禁互相直达、严禁提替代方案，详见总纲第五节）。'
+      : '主持人会给你布置任务或转达其他节点的观点。'
+  return `你已加入圆桌会议"${meeting.name}"（会议 id ${meeting.id}）作为专家节点 ${node.key}。${intro}收到任务后执行一整轮工作并用 roundtable_speak 汇报；当前成员名册一律以 roundtable_status 的 nodes[] 为准。现在等待主持人的指令。`
 }
 
 /**

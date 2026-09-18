@@ -34,6 +34,7 @@ const CAPTAIN_TOOLS = new Set([
   // 圆桌工具：主持人专属（deny 标的）
   'roundtable_create', 'roundtable_plan_meeting', 'roundtable_add_node',
   'roundtable_remove_node', 'roundtable_connect', 'roundtable_disconnect',
+  'roundtable_next_round',
   'roundtable_request_decision', 'roundtable_set_budget', 'roundtable_close',
   'roundtable_collect_review', 'roundtable_finish_review',
   'roundtable_export_review', 'roundtable_export_meeting', 'roundtable_kb_digest',
@@ -105,4 +106,22 @@ test('isRegistered 全 false 时清单为空（不抛错，交由宿主决定）
 test('默认参数是 relay（不传模式时不启用 allow 白名单）', () => {
   const r = nodeToolRestriction()
   assert.equal(r.allow, undefined)
+})
+
+test('R-B 单一出口：宿主 send_message 在 relay 与 direct 下都被 deny', () => {
+  for (const delivery of ['relay', 'direct']) {
+    const r = nodeToolRestriction(delivery, isRegistered)
+    assert.ok(r.deny.includes('send_message'), `${delivery}: send_message 必须在 deny 中（阻断子代理正文回传主会话）`)
+  }
+})
+
+test('R-B 单一出口：send_message 不出现在 direct allow 白名单', () => {
+  const r = nodeToolRestriction('direct', isRegistered)
+  assert.ok(!r.allow.includes('send_message'), 'allow 清单不得放宿主回传通道回来')
+})
+
+test('R-B：roundtable_next_round 是主持人专属工具，节点必须被 deny', () => {
+  const r = nodeToolRestriction('direct', isRegistered)
+  assert.ok(r.deny.includes('roundtable_next_round'))
+  assert.ok(!r.allow.includes('roundtable_next_round'))
 })

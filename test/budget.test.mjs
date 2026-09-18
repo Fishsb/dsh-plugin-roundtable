@@ -3,7 +3,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { budgetExceeded, ensureActive, estimateTokens, MeetingEndedError, MeetingMutedError } from '../src/budget.ts'
+import { beginRound, budgetExceeded, ensureActive, estimateTokens, MeetingEndedError, MeetingMutedError } from '../src/budget.ts'
 
 /** 最小可用 Meeting 工厂（只填被测逻辑需要的字段）。 */
 function meeting(overrides = {}) {
@@ -84,4 +84,39 @@ test('ensureActive：ended / archived 一律抛 MeetingEndedError', () => {
   for (const status of ['ended', 'archived']) {
     assert.throws(() => ensureActive(meeting({ status })), MeetingEndedError, `status=${status} 应被拒绝`)
   }
+})
+
+/* ---- R-B：roundtable_next_round 的纯逻辑内核（此前 beginRound 从未被调用，轮数轴形同虚设） ---- */
+
+test('beginRound：round 与 usedRounds 同步推进', () => {
+  const fresh = meeting()
+  assert.equal(beginRound(fresh), 1)
+  assert.equal(fresh.round, 1)
+  assert.equal(fresh.budget.usedRounds, 1)
+  beginRound(fresh)
+  assert.equal(fresh.round, 2)
+  assert.equal(fresh.budget.usedRounds, 2)
+})
+
+test('next_round 语义：推进到恰好等于上限时轮数轴超限', () => {
+  const fresh = meeting({ round: 2, budget: { maxRounds: 3, maxTokens: 1000, usedRounds: 2, usedTokens: 0 } })
+  beginRound(fresh)
+  assert.equal(budgetExceeded(fresh), 'rounds')
+  // 工具的做法：置 muted 并持久化（不抛错，让主持人看到本轮已开但已闭麦）
+  fresh.status = 'muted'
+  assert.equal(fresh.status, 'muted')
+  // 下一次再推进会被 withCaptainLock 的 ensureActive 拦下
+  assert.throws(() => ensureActive(fresh), MeetingMutedError)
+})
+
+test('next_round 语义：未触顶时保持 active 不闭麦', () => {
+  const fresh = meeting({ round: 1, budget: { maxRounds: 3, maxTokens: 1000, usedRounds: 1, usedTokens: 0 } })
+  beginRound(fresh)
+  assert.equal(budgetExceeded(fresh), undefined)
+})
+
+test('set_budget 解麦联动：补轮数额度后 round 轴不再是障碍（前提是有工具推进 round）', () => {
+  const fresh = meeting({ round: 3, status: 'muted', budget: { maxRounds: 3, maxTokens: 1000, usedRounds: 3, usedTokens: 10 } })
+  fresh.budget.maxRounds = 5 // 主持人加额
+  assert.equal(fresh.round < fresh.budget.maxRounds && fresh.budget.usedTokens < fresh.budget.maxTokens, true)
 })

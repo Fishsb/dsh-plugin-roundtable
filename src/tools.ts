@@ -41,7 +41,7 @@ import { PLUGIN_ID, HARNESS_RANGE } from './version.ts'
 import { buildCharter } from './charter.ts'
 import { aggregateUtterances } from './aggregator.ts'
 import { proxyThinkingPrompt } from './proxy-thinking.ts'
-import { beginRound, ensureActive, estimateTokens, MeetingMutedError } from './budget.ts'
+import { beginRound, budgetExceeded, ensureActive, estimateTokens, MeetingMutedError } from './budget.ts'
 import { deliverToNode, interruptNode, nodeActivity, spawnNode, steerCaptain, type MemberRuntimeConfig } from './members.ts'
 import { splitByMarkers, splitUtterance, type SplitLlmLike } from './review-split.ts'
 import {
@@ -233,6 +233,16 @@ function requireNode(meeting: Meeting, key: string): MeetingNode {
   const node = meeting.nodes.find((candidate) => candidate.key === key && candidate.status !== 'removed')
   if (node === undefined) throw new Error(`no active node named "${key}" in meeting "${meeting.name}"`)
   return node
+}
+
+/** R-C `to:"all"` fan-out recipients: live (spawned, not removed) nodes except
+ *  the speaker; a node speaker additionally reaches the captain. Roster
+ *  broadcasts ride the same transcript + wake path as directed messages. */
+export function broadcastRecipients(meeting: Meeting, speaker: string): string[] {
+  const live = meeting.nodes
+    .filter((node) => node.status !== 'removed' && node.id !== '' && node.key !== speaker)
+    .map((node) => node.key)
+  return speaker === CAPTAIN_KEY ? live : [CAPTAIN_KEY, ...live]
 }
 
 /** Resolve a node for the given key (captain/aggregator are not nodes). */
@@ -883,6 +893,47 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
   }))
 
   ctx.tools.register(defineTool({
+    name: 'roundtable_next_round',
+    description: 'Advance the meeting to the next round and start it. Call this ONCE right before you dispatch a new round of tasks to the nodes — it is what makes the max_rounds budget real (rounds were never counted before). If the round cap is hit by this advance, the meeting becomes muted (闭麦) and the result says so: top up with roundtable_set_budget or close the meeting. Requires the captain.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          round: { type: 'integer', required: true, description: 'The new current round number.' },
+          max_rounds: { type: 'integer', required: true },
+          status: { type: 'string', required: true },
+          muted_axis: { type: 'string', description: 'Empty when active; "rounds" | "tokens" when this advance muted the meeting.' },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.muted_axis === ''
+          ? `Round ${value.round}/${value.max_rounds} started.`
+          : `Round ${value.round}/${value.max_rounds} — meeting is now MUTED (${value.muted_axis} exceeded). Top up with roundtable_set_budget or close it.`,
+      }],
+    },
+    async execute(_args, exec) {
+      const captain = requireCaptain(exec)
+      const stateRoot = stateRootOf(workspaceOf(captain), config.stateDir)
+      const located = await locateCaptainMeeting(stateRoot, captain.id)
+      return withCaptainLock(stateRoot, located.id, captain.id, 'advance the round', async (fresh) => {
+        beginRound(fresh)
+        const exceeded = budgetExceeded(fresh)
+        if (exceeded !== undefined && fresh.status === 'active') fresh.status = 'muted'
+        await writeMeeting(stateRoot, fresh)
+        return {
+          round: fresh.round,
+          max_rounds: fresh.budget.maxRounds,
+          status: fresh.status,
+          muted_axis: exceeded ?? '',
+        }
+      })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'roundtable_speak',
     description: 'Write your contribution into the meeting transcript (the aggregation gateway input). Follow the charter format: start with [当前状态], end with [核心产出] and [下一步建议]; never output filler. Leave `to` empty to submit to the gateway; set it to a participant key for a directed remark.',
     parameters: {
@@ -934,9 +985,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_send_message',
-    description: 'Send a direct message to another participant: wakes the recipient as its next turn. In "orchestrated" mode only the captain may message nodes (nodes report to the captain); in "egalitarian" mode any participant may message any other — this is how experts debate peer-to-peer.',
+    description: 'Send a direct message to another participant: wakes the recipient as its next turn. In "orchestrated" mode only the captain may message nodes (nodes report to the captain); in "egalitarian" mode any participant may message any other — this is how experts debate peer-to-peer. to="all" broadcasts one message to every live participant (R-C roster fan-out: use it right after add_node/remove_node so running nodes — whose persona roster is only a spawn-time snapshot — learn the current roster; it costs one transcript line per recipient).',
     parameters: {
-      to: { type: 'string', required: true, description: 'Recipient: "captain" or a node key.' },
+      to: { type: 'string', required: true, description: 'Recipient: "captain", a node key, or "all" (broadcast to every live participant).' },
       content: { type: 'string', required: true, description: 'The message text.' },
     },
     output: {
@@ -944,10 +995,10 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         type: 'object',
         additionalProperties: false,
         properties: {
-          delivered: { type: 'string', required: true, description: 'wake (recipient node woken), live (captain steered), or dropped (best effort failed).' },
+          delivered: { type: 'string', required: true, description: 'wake (recipient node woken), live (captain steered), or dropped (best effort failed). For to="all": comma-separated key:outcome per recipient.' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Message delivered via ${value.delivered}.` }],
+      render: (_args, value) => [{ type: 'text', text: `Delivery: ${value.delivered}.` }],
     },
     async execute(args, exec) {
       const caller = requireCaptain(exec)
@@ -964,6 +1015,14 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         if (meeting.mode !== 'egalitarian' && identity.kind === 'node' && to !== CAPTAIN_KEY) {
           throw new Error('orchestrated/redteam mode: nodes report to the captain only — the captain relays between nodes')
         }
+        if (to === 'all') {
+          const recipients = broadcastRecipients(meeting, speaker)
+          if (recipients.length === 0) throw new Error('no live participants to broadcast to (every node is unspawned or removed)')
+          for (const recipient of recipients) {
+            await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: recipient })
+          }
+          return { kind: 'broadcast' as const, meeting, speaker, recipients }
+        }
         if (to === CAPTAIN_KEY) {
           // Captain-bound messages are persisted in the transcript; live steering happens after the lock.
           await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: CAPTAIN_KEY })
@@ -975,6 +1034,23 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         return { kind: 'node' as const, meeting, speaker, recipient }
       })
       const captainLive = ctx.agents.get(prepared.meeting.captainSessionId as import('@deepseek-ai/dsh-session').SessionId)
+      if (prepared.kind === 'broadcast') {
+        const outcomes: string[] = []
+        for (const recipient of prepared.recipients) {
+          if (recipient === CAPTAIN_KEY) {
+            const steered = captainLive !== undefined && prepared.speaker !== CAPTAIN_KEY
+              && steerCaptain(captainLive, `RoundTable message from ${prepared.speaker}:\n\n${content}`)
+            outcomes.push(`captain:${steered ? 'live' : 'dropped'}`)
+            continue
+          }
+          const target = prepared.meeting.nodes.find((node) => node.key === recipient)
+          const accepted = target !== undefined && captainLive !== undefined
+            ? await deliverToNode(ctx, captainLive, target.id, content, exec.signal)
+            : false
+          outcomes.push(`${recipient}:${accepted ? 'wake' : 'dropped'}`)
+        }
+        return { delivered: outcomes.join(',') }
+      }
       if (prepared.kind === 'captain') {
         if (captainLive !== undefined && prepared.speaker !== CAPTAIN_KEY) {
           const delivered = steerCaptain(captainLive, `RoundTable message from ${prepared.speaker}:\n\n${content}`)

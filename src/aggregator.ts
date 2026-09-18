@@ -25,6 +25,11 @@ function compact(text: string, limit: number): string {
   return single.length > limit ? `${single.slice(0, limit)}…` : single
 }
 
+/** Pull the "[建议决策]" line out of a contribution, if the expert flagged one. */
+function extractSuggestion(text: string): string {
+  return text.match(/\[建议决策\][：:\s]*([^\n]*)/)?.[1]?.trim() ?? ''
+}
+
 /** Merge utterances into a compact, chronological exchange (who → whom: core point). */
 export function aggregateUtterances(utterances: readonly MeetingUtterance[], maxLength = MAX_LENGTH): string {
   const lines: string[] = []
@@ -32,8 +37,10 @@ export function aggregateUtterances(utterances: readonly MeetingUtterance[], max
     if (utterance.kind !== 'speech' && utterance.kind !== 'proxy-thinking') continue
     const from = utterance.nodeKey
     const to = utterance.to ?? '网关'
-    const body = compact(extractCore(utterance.summary ?? utterance.content), MAX_PER_UTTERANCE)
-    lines.push(`[R${utterance.round}] ${from} → ${to}\n${body}`)
+    const source = utterance.summary ?? utterance.content
+    const body = compact(extractCore(source), MAX_PER_UTTERANCE)
+    const suggestion = compact(extractSuggestion(source), MAX_PER_UTTERANCE)
+    lines.push(`[R${utterance.round}] ${from} → ${to}\n${body}${suggestion === '' ? '' : `\n[建议决策] ${suggestion}`}`)
   }
   const text = `[汇聚网关·交锋摘要]\n${lines.join('\n\n') || '（暂无发言）'}`
   return text.length > maxLength ? `${text.slice(0, maxLength)}\n…(截断)` : text
