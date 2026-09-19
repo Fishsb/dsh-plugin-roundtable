@@ -13,7 +13,7 @@
 export const PLUGIN_VERSION = '0.2.45'
 
 /** 导出物头部使用的插件标识行。 */
-export const PLUGIN_ID = `@huanlin/dsh-plugin-roundtable v${PLUGIN_VERSION}`
+export const PLUGIN_ID = `dsh-plugin-roundtable v${PLUGIN_VERSION}`
 
 /** DeepSeek Harness 版本区间（导出头部展示用）。 */
 export const HARNESS_RANGE = 'DeepSeek Harness 0.1.5-rc.1+'

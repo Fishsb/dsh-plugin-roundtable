@@ -11,12 +11,12 @@
 ```
 D:\lk\FF\dsh-plugin-roundtable                    ← 唯一真相（改这里）
         ↑ junction
-C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable
+C:\Users\lk\.dsh\profiles\web\node_modules\dsh-plugin-roundtable
         ↑ 由 profiles/web/package.json 声明
-"@huanlin/dsh-plugin-roundtable": "file:D:/lk/FF/dsh-plugin-roundtable"
+"dsh-plugin-roundtable": "file:D:/lk/FF/dsh-plugin-roundtable"
 ```
 
-宿主的 loader entry 落在 `profiles/web/node_modules/@huanlin/dsh-plugin-roundtable/lib/index.js`，
+宿主的 loader entry 落在 `profiles/web/node_modules/dsh-plugin-roundtable/lib/index.js`，
 而该目录是**指向本项目的 junction**。因此：
 
 - **改本项目 `src/` → 重建 → 热重载**，即完成一次插件修改，**不存在第二份副本需要手工同步**。
@@ -184,7 +184,7 @@ C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable
   快照 `undispatchedOwners` 为空（修复前 `["impl"]`）；`planned owners (seat level): arch, impl`
   已在 status 渲染；`outOfScope` 圆桌制恒 0 条
 - **接线审计**：快照 `plan` 8 字段、`talentPool` 2 字段、`buildRoundSignals` 13 字段 —— **逐个**有消费者
-- 部署链：`profiles/web/node_modules/@huanlin/dsh-plugin-roundtable` → junction → 本目录
+- 部署链：`profiles/web/node_modules/dsh-plugin-roundtable` → junction → 本目录
 - 历史快照：R-C（0.2.36 / 100 例）、R-D host 侧（0.2.42 / 217 例）、R-D-UI（0.2.43 / 235 例）——
   均已被上文取代，留作基线对照
 
@@ -208,9 +208,8 @@ Get-ChildItem test\*.test.mjs | ForEach-Object { node --test $_.FullName }
 node node_modules\tsdown\dist\run.mjs -c tsdown.config.ts
 ```
 
-第 4 步：**热重载**——调 `dev_reload_package '@huanlin/dsh-plugin-roundtable'`（免重启），
+第 4 步：**热重载**——调 `dev_reload_package 'dsh-plugin-roundtable'`（免重启），
 或重启宿主。**不需要再手工复制 lib/ 到任何地方**。
-
 ### 两条不要踩的坑
 
 1. **别在本目录跑 `pnpm install --frozen-lockfile`**：`pnpm-lock.yaml` 与 `package.json` 已脱节
@@ -247,12 +246,29 @@ npm install --no-save --no-package-lock --cache .npm-cache typescript@5.9.2 tsdo
 | `D:\lk\FF\.roundtable\role-presets-self-review\export.md` | 自审会议记录（60 KB） |
 | `D:\lk\FF\.rt-self-review\` | 自审的四份证据材料 |
 
-## 六、上游 PR（留档，不指望合并）
+## 六、包名与发布链路（2026-09-20 变更）
 
-- PR #2：`https://github.com/9931666/dsh-plugin-roundtable/pull/2`（预设装配链）
-- PR #3：`https://github.com/9931666/dsh-plugin-roundtable/pull/3`（工具白名单过滤）
+- **包名去 scope**：`@huanlin/dsh-plugin-roundtable` → `dsh-plugin-roundtable`。
+  理由：`@huanlin` 是上游作者的 npm scope，本仓已独立维护，不该继续挂在别人的命名空间下。
+  改动落在四处（缺一处即装配失败）：
+  1. 本仓 `package.json` 的 `name`（另加 `"private": true`，明确不发布 npm）
+  2. 本仓 `cordis.patch.yml` 的 `name:`
+  3. 本仓 `tsdown.config.ts` 的 `const ID`（客户端 bundle 的 `__ModuleLoader__.load({id})` 与 CSS `data-plugin`）
+  4. profile 侧：`profiles/web/package.json`（dependencies + bundles）与 `profiles/web/cordis.yml` 的 `name:`
+- **junction**：`profiles/web/node_modules/dsh-plugin-roundtable` → 本目录。
+  旧名 `node_modules/@huanlin/dsh-plugin-roundtable` 的 junction **保留作运行期兼容垫片**
+  （当前进程仍按旧名解析）；确认新版运行正常并**重启 DSH** 后可删。
+- **发布链路已拆**：删除 `.github/workflows/publish.yml`（GitHub Actions 发布工作流）、
+  远端 Release 与 tag v0.2.45、仓内上游快照 `.upstream/roundtable-v0.2.35-upstream.tar.gz`。
+  **本仓不发 npm、不打 Release**；`release-notes/` 仅作变更记录留存。
 
-上游实况（2026-09-17 侦察）：无 CONTRIBUTING、无 PR 模板、无 CODEOWNERS；
-CI 只有 `publish.yml` 且**仅 tag 触发**（PR 不跑任何检查）；
-维护者 `9931666` 最后推送 2026-09-13，唯一 issue 挂了 7 天 0 回复。
-**决定不等待上游**，以本机为准自维护。
+## 七、上游关系（历史留档）
+
+RoundTable 最初由 [@huanlin](https://github.com/9931666) 创作并开源（MIT），
+仓库 [`9931666/dsh-plugin-roundtable`](https://github.com/9931666/dsh-plugin-roundtable)。
+原作者已停止维护，本仓自其 **v0.2.35** 基线接手，**独立维护、不回合并、不依赖上游更新**。
+
+- 上游最后推送：2026-09-13；上游仓库仍存在（未归档），源码与 MIT 版权声明完整保留自上游
+- 曾提交的两个上游 PR（#2 预设装配链 / #3 工具白名单过滤）**未合并**，相关改动已在本仓自行落地
+- 本仓不向上游回推、也不等待上游
+
