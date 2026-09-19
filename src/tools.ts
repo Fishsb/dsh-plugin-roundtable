@@ -109,6 +109,8 @@ export interface RolePresetLike {
   role: string
   provider?: string
   model?: string
+  /** 可选思考强度（宿主档位 id）；空/缺席 = 继承主持人。 */
+  reasoningEffort?: string
 }
 
 /**
@@ -721,7 +723,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         }
         // A2/A5: reasoning effort is captured on the node and forwarded by
         // spawnNode; an empty value means "inherit the captain's effort".
-        const reasoningEffort = args.reasoning_effort !== undefined ? String(args.reasoning_effort).trim() : ''
+        // 预设可携带档位（R-A 扩展）：显式入参优先，其次预设，最后继承主持人。
+        const explicitEffort = args.reasoning_effort !== undefined ? String(args.reasoning_effort).trim() : ''
         // R-A：预设引用。解析成功后，预设填充**未显式给出**的字段；显式参数优先。
         // 解析失败**不静默降级** —— 静默会让「以为用了预设」与「其实没用」不可分辨
         // （这正是本次自审抓到的假绿形态），所以直接报错并提示可用的 id。
@@ -750,6 +753,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           : (fromPreset?.provider !== undefined && fromPreset.model !== undefined
               ? fromPreset.model
               : captain.options.model)
+        // 档位与路由的关系：**可单独给出**（只改强度、不改路由），空即继承。
+        const presetEffort = fromPreset?.reasoningEffort !== undefined ? String(fromPreset.reasoningEffort).trim() : ''
+        const reasoningEffort = explicitEffort !== '' ? explicitEffort : presetEffort
         const node: MeetingNode = {
           id: '',
           key: nodeKey,
@@ -1886,7 +1892,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_list_presets',
-    description: 'List the user\'s self-built role presets (设置 → 圆桌会议 → 角色预设）。读取实时，返回每条预设的 id / name / role / provider / model。用途：在你为会议挑选专家之前拿到**用户真正定义的**角色文本，而不是自己临场编一个 role。拿到后把某条的 role 原样传给 roundtable_add_node（或直接用 preset 参数引用）。返回空列表表示用户尚未建任何预设——此时不要假装有预设可用，改为自行写 role 并说明这是临时角色。',
+    description: 'List the user\'s self-built role presets (设置 → 圆桌会议 → 角色预设）。读取实时，返回每条预设的 id / name / role / provider / model / reasoningEffort（思考强度；空 = 继承主持人）。用途：在你为会议挑选专家之前拿到**用户真正定义的**角色文本，而不是自己临场编一个 role。拿到后把某条的 role 原样传给 roundtable_add_node（或直接用 preset 参数引用；档位会随之自动生效，无需重复给 reasoning_effort）。返回空列表表示用户尚未建任何预设——此时不要假装有预设可用，改为自行写 role 并说明这是临时角色。',
     parameters: {
       filter: { type: 'string', description: '可选：按 id 或名称子串过滤；留空返回全部。' },
     },
@@ -1909,6 +1915,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
                 role: { type: 'string', required: true },
                 provider: { type: 'string', required: true },
                 model: { type: 'string', required: true },
+                reasoningEffort: { type: 'string', required: true },
               },
             },
           },
@@ -1922,7 +1929,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           const route = preset.provider === '' || preset.model === ''
             ? '（继承主持人路由）'
             : `${preset.provider}/${preset.model}`
-          return `- ${preset.id} | ${preset.name} | ${route}\n  role: ${preset.role}`
+          const effort = preset.reasoningEffort === '' ? '' : ` @${preset.reasoningEffort}`
+          return `- ${preset.id} | ${preset.name} | ${route}${effort}\n  role: ${preset.role}`
         })
         return [{
           type: 'text',
@@ -1945,6 +1953,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           role: preset.role,
           provider: preset.provider ?? '',
           model: preset.model ?? '',
+          reasoningEffort: preset.reasoningEffort ?? '',
         })),
       }
     },
@@ -2133,7 +2142,8 @@ function renderStatus(value: Record<string, unknown>): string {
           const route = String(candidate.provider ?? '') === '' || String(candidate.model ?? '')
             ? '（继承主持人路由）'
             : `${String(candidate.provider)}/${String(candidate.model)}`
-          return `  - ${String(candidate.id)} | ${String(candidate.name)} | ${route}${candidate.on_stage === true ? ' | ON STAGE' : ''}`
+          const effort = String(candidate.reasoning_effort ?? '') === '' ? '' : ` @${String(candidate.reasoning_effort)}`
+          return `  - ${String(candidate.id)} | ${String(candidate.name)} | ${route}${effort}${candidate.on_stage === true ? ' | ON STAGE' : ''}`
         })),
     `Round signals (R${String(signals.round ?? value.round)}):`,
     ...(signals.round === undefined ? ['  (captain only)'] : [

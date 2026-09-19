@@ -5,8 +5,8 @@
  * @module dsh-plugin-roundtable/client/RoundTableSettings
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import type { RpcCaller, RoundTablePrefs, WireFeedbackEntry, WireProviderOption, WireRolePreset } from './wire.ts'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { RpcCaller, RoundTablePrefs, WireFeedbackEntry, WireModelCatalog, WireProviderOption, WireRolePreset } from './wire.ts'
 import type { RoundTableKey } from './locales.ts'
 import styles from './RoundTableSettings.module.css'
 
@@ -38,6 +38,128 @@ const PANEL_LABELS: Readonly<Record<string, RoundTableKey>> = {
  *  （客户端提前拦截，服务端仍然会截断，两层都有）。 */
 const ROLE_PRESET_LIMIT = 50
 
+/** 编辑/新建共用的草稿形状（五个字段一次写全：名称、角色、路由、档位）。 */
+interface PresetDraft {
+  name: string
+  role: string
+  provider: string
+  model: string
+  reasoningEffort: string
+}
+
+/**
+ * 预设表单（**唯一一个**编辑入口）。
+ *
+ * 刻意抽成独立组件而不是把 JSX 抄两遍：行内编辑（挂在条目内）与新建（挂在列表
+ * 下方）用的是**同一张表单**，抄两遍必然漂移（历史上正是"模型设置藏在编辑表单、
+ * 另一个入口又给一份"这种双写口造成了歧义）。抽出来后"模型 · 思考强度"只有一处
+ * 可写，且行内挂载让"改的是第几条"与三个选择器同屏。
+ */
+function PresetForm(props: {
+  draft: PresetDraft
+  efforts: { id: string; name: string; description?: string }[]
+  providers: WireProviderOption[]
+  formRef: React.RefObject<HTMLDivElement>
+  t: (key: string) => string
+  /** true = 挂在该条预设内部（行内编辑），需独占整行；false = 挂列表下方（新建）。 */
+  inline: boolean
+  onDraft: (next: PresetDraft) => void
+  onSave: () => void
+  onCancel: () => void
+}): JSX.Element {
+  const { draft, efforts, providers, formRef, t, inline, onDraft, onSave, onCancel } = props
+  const models = providers.find((provider) => provider.id === draft.provider)?.models ?? []
+  const className = inline ? `${styles.presetForm} ${styles.presetFormInline}` : styles.presetForm
+  return (
+    <div className={className} ref={formRef}>
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetName')}</label>
+        <input
+          className={styles.input}
+          value={draft.name}
+          placeholder={t('settingsPresetNamePlaceholder')}
+          onChange={(event) => onDraft({ ...draft, name: event.target.value })}
+        />
+      </div>
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetRole')}</label>
+        <input
+          className={styles.input}
+          value={draft.role}
+          placeholder={t('settingsPresetRolePlaceholder')}
+          onChange={(event) => onDraft({ ...draft, role: event.target.value })}
+        />
+      </div>
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetModel')}</label>
+        <div className={styles.presetModelRow}>
+          <select
+            className={styles.presetSelect}
+            value={draft.provider}
+            onChange={(event) => {
+              // 换 provider ⇒ 路由与档位**同时**清空。只清 model 会留下
+              // `deepseek @ high` 这种假值，到专家首个请求才炸
+              // UNSUPPORTED_REASONING_EFFORT，症状与"模型慢"不可分辨。
+              onDraft({ ...draft, provider: event.target.value, model: '', reasoningEffort: '' })
+            }}
+          >
+            <option value="">{t('manageModelInherit')}</option>
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>{provider.name || provider.id}</option>
+            ))}
+          </select>
+          <select
+            className={styles.presetSelect}
+            value={draft.model}
+            disabled={draft.provider === ''}
+            onChange={(event) => {
+              // 换 model ⇒ 档位同样清空（新模型未必声明同一档位）。
+              onDraft({ ...draft, model: event.target.value, reasoningEffort: '' })
+            }}
+          >
+            <option value="">{t('manageModelInherit')}</option>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>{model.name || model.id}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetEffortTitle')}</label>
+        <div className={styles.presetModelRow}>
+          <select
+            className={styles.presetSelect}
+            value={draft.reasoningEffort}
+            // 无档位模型：控件保留但**置灰**并同屏给文案。隐藏会让"这个模型没有"
+            // 与"设置没生效"两种状态同形，用户判不出来。
+            disabled={efforts.length === 0}
+            onChange={(event) => onDraft({ ...draft, reasoningEffort: event.target.value })}
+          >
+            <option value="">{t('manageModelInherit')}</option>
+            {efforts.map((effort) => (
+              <option key={effort.id} value={effort.id}>{effort.name || effort.id}</option>
+            ))}
+          </select>
+        </div>
+        {draft.model !== '' && efforts.length === 0 ? (
+          <div className={styles.presetPanelWarn}>{t('settingsPresetEffortUnavailable')}</div>
+        ) : (
+          <div className={styles.presetPanelHint}>{t('settingsPresetEffortInheritHint')}</div>
+        )}
+      </div>
+      <div className={styles.presetPanelHint}>{t('settingsPresetEffortOnlyNew')}</div>
+      <div className={styles.presetFormActions}>
+        <button type="button" className={styles.presetAddBtn} onClick={onSave}>
+          {t('settingsPresetSave')}
+        </button>
+        <button type="button" className={styles.presetCancelBtn} onClick={onCancel}>
+          {t('settingsPresetCancel')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element {
   const { rpc, t } = props
   const [prefs, setPrefs] = useState<RoundTablePrefs | null>(null)
@@ -52,22 +174,48 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
   const [providers, setProviders] = useState<WireProviderOption[]>([])
   const [presetFormOpen, setPresetFormOpen] = useState(false)
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
-  const [presetDraft, setPresetDraft] = useState<{ name: string; role: string; provider: string; model: string }>({
+  const [presetDraft, setPresetDraft] = useState<{ name: string; role: string; provider: string; model: string; reasoningEffort: string }>({
     name: '',
     role: '',
     provider: '',
     model: '',
+    reasoningEffort: '',
   })
   const [presetNotice, setPresetNotice] = useState<'saved' | 'failed' | 'invalid' | 'limit' | null>(null)
+  /** 条目级保存回执（按预设 id）：页面级一句话说不清"改的是哪条"。 */
+  const [presetSavedId, setPresetSavedId] = useState<string | null>(null)
+  /** 模型目录读取失败（provider 粒度）；非空即在页顶显式提示，不与"无模型"同形。 */
+  const [catalogFailures, setCatalogFailures] = useState<{ id: string; name: string; message: string }[]>([])
+  /** 编辑表单的挂载点：行内编辑（挂在条目内）与新建（挂在列表下方）共用一把 ref。 */
+  const formRef = useRef<HTMLDivElement | null>(null)
 
-  // 模型下拉复用与专家管理同一份主机模型目录。
+  // 模型下拉复用与专家管理同一份主机模型目录（含逐模型档位词表 + 失败清单）。
   useEffect(() => {
-    void rpc<{ providers: WireProviderOption[] }>('roundtable/models.list', {})
+    void rpc<WireModelCatalog>('roundtable/models.list', {})
       .then((result) => {
-        if (result.ok) setProviders(Array.isArray(result.value?.providers) ? result.value.providers : [])
+        if (result.ok) {
+          setProviders(Array.isArray(result.value?.providers) ? result.value.providers : [])
+          const failures = result.value?.failures
+          setCatalogFailures(Array.isArray(failures) ? failures : [])
+        }
       })
       .catch(() => undefined)
   }, [rpc])
+
+  /**
+   * 编辑表单打开后滚入可视区（体验判据 M6）。
+   *
+   * `.presetList` 是 260px 滚动容器：点击「编辑」只保证**按钮**可见，浏览器不会
+   * 为按钮下方新长出的表单滚动，表单会整块落在容器外 → 用户以为"点了没反应"。
+   * `block:'nearest'` 只滚到刚好可见（不整页跳），且必须在**表单渲染后**调用，
+   * 否则量到的是折叠高度，等于没滚。
+   */
+  useLayoutEffect(() => {
+    if (!presetFormOpen) return
+    const node = formRef.current
+    if (node === null || typeof node.scrollIntoView !== 'function') return
+    node.scrollIntoView({ block: 'nearest' })
+  }, [presetFormOpen, editingPresetId])
 
   const loadFeedback = useCallback((): void => {
     void rpc<{ entries: WireFeedbackEntry[] }>('roundtable/feedback.list', {})
@@ -174,7 +322,7 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
    * `scope.update` 究竟是合并还是整体替换，客户端无法确定；提交完整对象
    * 在两种语义下都正确，也与底部「保存」按钮的做法一致。
    */
-  const persistPresets = (next: WireRolePreset[]): void => {
+  const persistPresets = (next: WireRolePreset[], savedId?: string): void => {
     if (prefs === null) return
     const full: RoundTablePrefs = { ...prefs, rolePresets: next }
     setPrefs(full)
@@ -183,6 +331,8 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
         if (result.ok) {
           setPrefs(result.value)
           setPresetNotice('saved')
+          // 条目级回执（M1）：让用户看见"改的是哪一条"，而不是页脚一句话。
+          setPresetSavedId(savedId ?? null)
         } else {
           setPresetNotice('failed')
         }
@@ -190,11 +340,18 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
       .catch(() => setPresetNotice('failed'))
   }
 
+  /**
+   * 打开编辑表单。
+   *
+   * **一条预设只有一个可写处**：模型与思考强度就在这张表单里（不再有第二个
+   * "模型 · 思考强度"入口）。列表内点「编辑」= 行内展开（挂在该条下方，so
+   * "改的是第几条"与表单同屏）；点「新建预设」= 挂在整个列表下方。
+   */
   const openPresetForm = (preset?: WireRolePreset): void => {
     setPresetNotice(null)
     if (preset === undefined) {
       setEditingPresetId(null)
-      setPresetDraft({ name: '', role: '', provider: '', model: '' })
+      setPresetDraft({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
     } else {
       setEditingPresetId(preset.id)
       setPresetDraft({
@@ -202,6 +359,7 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
         role: preset.role,
         provider: preset.provider ?? '',
         model: preset.model ?? '',
+        reasoningEffort: preset.reasoningEffort ?? '',
       })
     }
     setPresetFormOpen(true)
@@ -210,7 +368,7 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
   const closePresetForm = (): void => {
     setPresetFormOpen(false)
     setEditingPresetId(null)
-    setPresetDraft({ name: '', role: '', provider: '', model: '' })
+    setPresetDraft({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
   }
 
   const submitPreset = (): void => {
@@ -228,16 +386,18 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     }
     // provider/model 必须成对：只有两者都选好才算"指定路由"，否则继承主持人。
     const routed = presetDraft.provider !== '' && presetDraft.model !== ''
+    const effort = presetDraft.reasoningEffort.trim()
     const entry: WireRolePreset = {
       id: editingPresetId ?? newPresetId(),
       name,
       role,
       ...(routed ? { provider: presetDraft.provider, model: presetDraft.model } : {}),
+      ...(effort === '' ? {} : { reasoningEffort: effort }),
     }
     const next = editingPresetId === null
       ? [...current, entry]
       : current.map((preset) => (preset.id === editingPresetId ? entry : preset))
-    persistPresets(next)
+    persistPresets(next, entry.id)
     closePresetForm()
   }
 
@@ -260,6 +420,13 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     void rpc<RoundTablePrefs>('roundtable/prefs.set', { ...next }).then((result) => {
       if (result.ok) setPrefs(result.value)
     })
+  }
+
+  /** 当前编辑表单所选模型声明的档位词表（宿主 `reasoning.efforts` 逐字）。 */
+  const draftEfforts = (): { id: string; name: string; description?: string }[] => {
+    const provider = providers.find((candidate) => candidate.id === presetDraft.provider)
+    const model = provider?.models.find((candidate) => candidate.id === presetDraft.model)
+    return model?.reasoning?.efforts ?? []
   }
 
   const formatTs = (ts: number): string => {
@@ -383,6 +550,12 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
       <div className={styles.sectionTitle}>{t('settingsPresetsTitle')}</div>
       <div className={styles.field}>
         <div className={styles.hint}>{t('settingsPresetsHint')}</div>
+        {/* 目录读取失败：显式提示（否则与"这个 provider 没有模型"完全同形）。 */}
+        {catalogFailures.length > 0 ? (
+          <div className={styles.warning}>
+            {catalogFailures.map((failure) => `${failure.name || failure.id}: ${failure.message}`).join(' / ')}
+          </div>
+        ) : null}
         {presets.length === 0 ? (
           <div className={styles.note}>{t('settingsPresetsEmpty')}</div>
         ) : (
@@ -401,13 +574,29 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
                     {preset.provider !== undefined && preset.provider !== '' && preset.model !== undefined && preset.model !== ''
                       ? `${preset.provider}/${preset.model}`
                       : t('manageModelInherit')}
+                    {/* 档位摘要：不显示则用户无法察觉"设了档位但被净化层丢掉"。 */}
+                    {preset.reasoningEffort !== undefined && preset.reasoningEffort !== ''
+                      ? ` @${preset.reasoningEffort}`
+                      : ''}
                   </div>
+                  {presetSavedId === preset.id && presetNotice === 'saved' ? (
+                    <div className={styles.presetItemNotice}>{t('settingsPresetUpdated')}</div>
+                  ) : null}
                 </div>
                 <div className={styles.presetActions}>
                   <button type="button" className={styles.presetBtn} onClick={() => toggleDefaultPreset(preset.id)}>
                     {prefs.defaultPresetId === preset.id ? t('settingsPresetClearDefault') : t('settingsPresetSetDefault')}
                   </button>
-                  <button type="button" className={styles.presetBtn} onClick={() => openPresetForm(preset)}>
+                  <button
+                    type="button"
+                    className={styles.presetBtn}
+                    aria-expanded={presetFormOpen && editingPresetId === preset.id}
+                    onClick={() => {
+                      // 再次点「编辑」＝收起（同一按钮既开又关，不需要额外的取消键）。
+                      if (presetFormOpen && editingPresetId === preset.id) closePresetForm()
+                      else openPresetForm(preset)
+                    }}
+                  >
                     {t('settingsPresetEdit')}
                   </button>
                   <button
@@ -418,70 +607,44 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
                     {t('settingsPresetDelete')}
                   </button>
                 </div>
+                {/* 行内编辑：点该条「编辑」时，表单就长在这一条下方 ——
+                    "改的是第几条"与三个选择器同屏（列表本身是 260px 滚动容器）。 */}
+                {presetFormOpen && editingPresetId === preset.id ? (
+                  <PresetForm
+                    draft={presetDraft}
+                    efforts={draftEfforts()}
+                    providers={providers}
+                    formRef={formRef}
+                    t={t}
+                    inline
+                    onDraft={setPresetDraft}
+                    onSave={submitPreset}
+                    onCancel={closePresetForm}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
         )}
-        {presetFormOpen ? (
-          <div className={styles.presetForm}>
-            <div className={styles.presetFormRow}>
-              <label className={styles.label}>{t('settingsPresetName')}</label>
-              <input
-                className={styles.input}
-                value={presetDraft.name}
-                placeholder={t('settingsPresetNamePlaceholder')}
-                onChange={(event) => setPresetDraft((previous) => ({ ...previous, name: event.target.value }))}
-              />
-            </div>
-            <div className={styles.presetFormRow}>
-              <label className={styles.label}>{t('settingsPresetRole')}</label>
-              <input
-                className={styles.input}
-                value={presetDraft.role}
-                placeholder={t('settingsPresetRolePlaceholder')}
-                onChange={(event) => setPresetDraft((previous) => ({ ...previous, role: event.target.value }))}
-              />
-            </div>
-            <div className={styles.presetFormRow}>
-              <label className={styles.label}>{t('settingsPresetModel')}</label>
-              <div className={styles.presetModelRow}>
-                <select
-                  className={styles.presetSelect}
-                  value={presetDraft.provider}
-                  onChange={(event) => setPresetDraft((previous) => ({ ...previous, provider: event.target.value, model: '' }))}
-                >
-                  <option value="">{t('manageModelInherit')}</option>
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>{provider.name || provider.id}</option>
-                  ))}
-                </select>
-                <select
-                  className={styles.presetSelect}
-                  value={presetDraft.model}
-                  disabled={presetDraft.provider === ''}
-                  onChange={(event) => setPresetDraft((previous) => ({ ...previous, model: event.target.value }))}
-                >
-                  <option value="">{t('manageModelInherit')}</option>
-                  {(providers.find((provider) => provider.id === presetDraft.provider)?.models ?? []).map((model) => (
-                    <option key={model.id} value={model.id}>{model.name || model.id}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className={styles.presetFormActions}>
-              <button type="button" className={styles.presetAddBtn} onClick={submitPreset}>
-                {t('settingsPresetSave')}
-              </button>
-              <button type="button" className={styles.presetCancelBtn} onClick={closePresetForm}>
-                {t('settingsPresetCancel')}
-              </button>
-            </div>
-          </div>
-        ) : (
+        {/* 新建预设：列表下方（没有"是哪一条"的问题）。 */}
+        {presetFormOpen && editingPresetId === null ? (
+          <PresetForm
+            draft={presetDraft}
+            efforts={draftEfforts()}
+            providers={providers}
+            formRef={formRef}
+            t={t}
+            inline={false}
+            onDraft={setPresetDraft}
+            onSave={submitPreset}
+            onCancel={closePresetForm}
+          />
+        ) : null}
+        {!presetFormOpen ? (
           <button type="button" className={styles.presetAddBtn} onClick={() => openPresetForm()}>
             + {t('settingsPresetAdd')}
           </button>
-        )}
+        ) : null}
         {presetNotice === 'saved' ? <span className={styles.saved}>{t('settingsPresetUpdated')}</span> : null}
         {presetNotice === 'failed' ? <span className={styles.failed}>{t('settingsSaveFailed')}</span> : null}
         {presetNotice === 'invalid' ? <span className={styles.failed}>{t('settingsPresetInvalid')}</span> : null}

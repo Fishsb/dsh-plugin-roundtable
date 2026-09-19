@@ -170,6 +170,8 @@ export interface UserAction {
   provider?: string
   /** Model captured for an add-node action (empty = inherit captain). */
   model?: string
+  /** Reasoning effort captured for an add-node action (empty = inherit captain). */
+  reasoningEffort?: string
   /** Human-readable sentence, e.g. "删除了专家 researcher". */
   text: string
 }
@@ -191,6 +193,12 @@ export interface RolePreset {
   provider?: string
   /** 可选模型名；空 = 继承主持人。 */
   model?: string
+  /** 可选思考强度（宿主 reasoning effort 的不透明 id，如 `high`）。
+   *
+   *  空 / 缺席 = 继承主持人的 route-owned effort —— 与 provider/model 的
+   *  「成对才生效」不同，effort 可单独给出（只改档位、不改路由）。档位词表
+   *  由 `roundtable/models.list` 逐模型下发，插件不自造枚举。 */
+  reasoningEffort?: string
 }
 
 /** 知识库摘要缓存（C2）的一条条目。

@@ -268,6 +268,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* 形态 A：条目要能换行，第二行按钮与行内面板才落在下方而不是第四列。 */
+  flex-wrap: wrap;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.7);
   background: rgba(0, 0, 0, 0.03);
@@ -318,6 +320,28 @@
   display: flex;
   gap: 6px;
   flex: none;
+}
+
+/* 行内编辑标记：编辑表单挂在该条目内部、按钮行之下。
+   `.presetForm` 自身已是虚线大块；这里只补"独占整行"（父级是横排 flex）。 */
+.presetFormInline {
+  flex-basis: 100%;
+}
+
+.presetPanelHint {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.presetPanelWarn {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 条目的保存回执：贴在**被改的那一条**上，而不是页面底部。 */
+.presetItemNotice {
+  font-size: 11px;
+  color: #2e7d32;
 }
 
 .presetBtn {

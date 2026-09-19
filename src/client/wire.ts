@@ -47,6 +47,8 @@ export interface WireNode {
   role: string
   provider: string
   model: string
+  /** 该席思考强度（宿主档位 id）；缺失 = 继承主持人或旧 host。 */
+  reasoningEffort?: string
   status: string
   activity: string
 }
@@ -83,6 +85,8 @@ export interface WirePendingAction {
   role: string
   provider: string
   model: string
+  /** 思考强度（空 = 继承主持人；旧 host 不返回该键）。 */
+  reasoningEffort?: string
   text: string
 }
 
@@ -90,6 +94,8 @@ export interface WirePendingAction {
 export interface WireModelOption {
   id: string
   name: string
+  /** 该模型声明的一条推理档位（逐字沿用宿主 `reasoning.efforts[]`）。 */
+  reasoning?: WireModelReasoning
 }
 
 /** Provider entry with its advertised models for the expert-management dropdown. */
@@ -97,6 +103,26 @@ export interface WireProviderOption {
   id: string
   name: string
   models: WireModelOption[]
+}
+
+/** 一条推理档位（id/name 逐字取自宿主，插件不自造词表）。 */
+export interface WireModelReasoning {
+  efforts: { id: string; name: string; description?: string }[]
+  defaultEffort?: string
+}
+
+/** provider 粒度的目录读取失败（一条 provider 至多一条）。 */
+export interface WireModelCatalogFailure {
+  id: string
+  name: string
+  message: string
+}
+
+/** `roundtable/models.list` 的响应：目录 + 失败清单（二者不得混同）。 */
+export interface WireModelCatalog {
+  providers: WireProviderOption[]
+  /** 旧 host 不返回该键 ⇒ 视为「无失败」（不臆造失败）。 */
+  failures?: WireModelCatalogFailure[]
 }
 
 export interface WireMessage {
@@ -295,6 +321,8 @@ export interface WireRolePreset {
   provider?: string
   /** 可选模型名；空 = 继承主持人。 */
   model?: string
+  /** 可选思考强度（宿主档位 id，如 `high`）；空 = 继承主持人。 */
+  reasoningEffort?: string
 }
 
 export interface RoundTablePrefs {

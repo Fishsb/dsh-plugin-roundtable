@@ -5,9 +5,14 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-202724" alt="DeepSeek Harness 插件">
-  <img src="https://img.shields.io/badge/version-v0.2.35-blue" alt="v0.2.35">
+  <img src="https://img.shields.io/badge/version-v0.2.45-blue" alt="v0.2.45">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license">
 </p>
+
+> **本仓说明**：这是 RoundTable 的**自维护分支**（作者 [Fishsb](https://github.com/Fishsb)），
+> 基线取自上游 [huanlin/9931666](https://github.com/9931666/dsh-plugin-roundtable) v0.2.35（MIT），
+> 在其之上独立演进了 R-A～R-D 各项增强（预设装配链、主持人单一出口、成员感知同步、调度面与调度面板）。
+> 不回合并上游，也不依赖上游更新；问题请提到本仓 [Issues](https://github.com/Fishsb/dsh-plugin-roundtable/issues)。
 
 <!-- 主图占位：把「圆桌会议」Tab 截图放到 docs/screenshot.png 后启用下面这行 -->
 <!-- <p align="center"><img src="docs/screenshot.png" alt="圆桌会议拓扑图" width="720"></p> -->
@@ -66,7 +71,9 @@
 ### 角色预设、整场导出与摘要缓存（v0.2.35）
 | 能力 | 说明 |
 | --- | --- |
-| **自建角色预设** | 设置 → 圆桌会议 → 「角色预设」自己建模板（名称 + 角色说明必填，模型可选 = 继承主持人），支持新建 / 编辑 / 删除。**插件不预置任何内置角色**；预设是全局偏好，改动不影响已创建的会议。 |
+| **自建角色预设** | 设置 → 圆桌会议 → 「角色预设」自己建模板（名称 + 角色说明必填），支持新建 / 编辑 / 删除。**插件不预置任何内置角色**；预设是全局偏好，改动不影响已创建的会议。 |
+| **模型 · 思考强度** | 点某条预设的「编辑」，表单**就长在那一条下方**，一次改完名称、角色说明、厂商+模型与**思考强度**；档位名逐字取自宿主（不自造枚举），模型无档位时控件置灰并显示「当前模型未提供推理等级。」。改完就在该行显示回执，再点一次「编辑」收起。 |
+| **预设带路由也带强度** | 预设里的厂商/模型/思考强度会一路带到专家节点：专家管理面板一键填充 4/4 字段，新加入的专家按其预设的强度起跑（`@high` 之类会显示在预设摘要与候选池里）。**只影响之后新加入的专家**，已在场的专家不受影响。 |
 | **整场会议导出** | `roundtable_export_meeting` 把会议整体（元数据头 / 议题 / 专家名单 / 决策记录 / 逐轮发言 / 评审记录 / 用户调整记录）渲染成 Markdown，**同时写入 `<meetingDir>/export.md`**，可直接留存或贴进 issue；进行中的会议也能导（头部标「进行中快照」）。 |
 | **版本号单一来源** | 导出头部统一读 `src/version.ts` 的 `PLUGIN_VERSION`——此前评审导出头部硬编码的 `v0.2.21` 已经写进过交付物；`test/version.test.mjs` 会在它与 `package.json` 不一致时直接失败。 |
 | **统一原子写** | `user-actions.jsonl` / `feedback.jsonl` 的写入与清空改走同一套"同目录 tmp + rename"原子写，并与 UI 追加共用一把串行锁；清空时若发现坏行会**返回 `malformed` 计数**，主持人必须如实告知用户，不再静默丢操作。 |
@@ -75,7 +82,7 @@
 | 能力 | 说明 |
 | --- | --- |
 | **专家管理界面** | 右栏「＋」直接加/删专家、从模型下拉选厂商；改动记入 `user-actions.jsonl`，主持人下一轮自动执行，UI 与主持人认知同步。 |
-| **角色预设一键填充** | 专家管理表单顶部多了一个「角色预设」下拉：选中即自动填好角色说明与 provider/model（专家 key 仍由你填）。预设为空时给出"去设置页新建"的指引。 |
+| **角色预设一键填充** | 专家管理表单顶部多了一个「角色预设」下拉：选中即自动填好角色说明、provider/model 与**思考强度**（专家 key 仍由你填）。预设为空时给出"去设置页新建"的指引。 |
 | **右栏面板显示开关** | 设置 → 圆桌会议 → 「右栏面板显示」：**点亮的圆圈 = 显示、暗掉的 = 隐藏**（专家 / 分工 / 知识库 / 已选 skill / 发言记录 / 分针记录 / 产出文件）。关掉不常看的面板，右栏立刻变短（拓扑页本身不放提示框，保持工整）。 |
 | **知识库（阅览版）** | 填一个文件夹路径即列出文件与格式；专家需要资料时由主持人按需读取转交，不整库搬运，避免 Token 双倍消耗。 |
 | **会议删除** | 右栏一键删除会议（确认弹窗 + 磁盘彻底删除 + 连带清理专家子代理）。 |
@@ -95,7 +102,7 @@ dsh plugin --profile web add @huanlin/dsh-plugin-roundtable
 或**从源码构建**（修改源码后重新 `pnpm build`，本地安装继续链接当前目录）：
 
 ```sh
-git clone https://github.com/9931666/dsh-plugin-roundtable
+git clone https://github.com/Fishsb/dsh-plugin-roundtable
 cd dsh-plugin-roundtable
 pnpm install
 pnpm build

@@ -21,7 +21,9 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == '9931666/dsh-plugin-roundtable'
+    # npm 发布必须由拥有 @huanlin scope 的账号执行；本仓保留源码与 Release，
+    # 只有显式设置仓库变量 NPM_PUBLISH=true 时才尝试发布（缺 token 必定失败）。
+    if: github.repository == 'Fishsb/dsh-plugin-roundtable' && vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -70,8 +72,8 @@ jobs:
         run: npm publish --ignore-scripts --access public
 
   release:
+    # 不依赖 publish：npm 发布被跳过时 Release 仍应产出（needs 指向被跳过 job 会连带跳过）
     if: github.event_name == 'push'
-    needs: publish
     permissions:
       contents: write
     runs-on: ubuntu-latest

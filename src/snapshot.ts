@@ -120,6 +120,8 @@ export interface MeetingSnapshot {
     role: string
     provider: string
     model: string
+    /** 该席的思考强度（宿主档位 id；空 = 继承主持人）。缺失 = 旧快照。 */
+    reasoningEffort?: string
     status: string
     activity: string
   }[]
@@ -146,6 +148,8 @@ export interface MeetingSnapshot {
     role: string
     provider: string
     model: string
+    /** 思考强度（空 = 继承主持人）。 */
+    reasoningEffort: string
     text: string
   }[]
   /** 针锋相对评审（无则 null）。 */
@@ -317,6 +321,7 @@ export async function collectMeetingSnapshots(
     role: action.role ?? '',
     provider: action.provider ?? '',
     model: action.model ?? '',
+    reasoningEffort: action.reasoningEffort ?? '',
     text: action.text,
   })
   const snapshots: MeetingSnapshot[] = []
@@ -366,6 +371,7 @@ export async function collectMeetingSnapshots(
             role: node.role ?? '',
             provider: node.provider ?? '',
             model: node.model ?? '',
+            ...(node.reasoningEffort === undefined || node.reasoningEffort === '' ? {} : { reasoningEffort: node.reasoningEffort }),
             status: node.status,
             activity,
           }

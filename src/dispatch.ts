@@ -561,12 +561,12 @@ export function onStagePresetEntries(
  * `Record<string, JsonValue>`，而 TS 只给对象字面量/匿名类型隐式索引签名。
  */
 export function buildTalentPool(
-  presets: readonly { id: string; name: string; provider?: string; model?: string }[],
+  presets: readonly { id: string; name: string; provider?: string; model?: string; reasoningEffort?: string }[],
   nodes: readonly { key: string; status: string; presetId?: string }[],
 ): {
   total: number
   on_stage: { preset_id: string; node_keys: string[] }[]
-  candidates: { id: string; name: string; provider: string; model: string; on_stage: boolean }[]
+  candidates: { id: string; name: string; provider: string; model: string; reasoning_effort: string; on_stage: boolean }[]
 } {
   const onStage = onStagePresetEntries(nodes)
   const staged = new Set(onStage.map((entry) => entry.preset_id))
@@ -578,6 +578,8 @@ export function buildTalentPool(
       name: preset.name,
       provider: preset.provider ?? '',
       model: preset.model ?? '',
+      // 候选池摘要也带档位：否则主持人看不到"这条预设带不带强度"。
+      reasoning_effort: preset.reasoningEffort ?? '',
       on_stage: staged.has(preset.id),
     })),
   }

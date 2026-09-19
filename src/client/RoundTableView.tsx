@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
+import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireModelCatalog, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
 import { fetchMeetings } from './wire.ts'
 import { BRAND_LOGOS } from './brand-logos.generated.ts'
 import styles from './RoundTableView.module.css'
@@ -246,7 +246,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const [manageOpen, setManageOpen] = useState(false)
   const [providers, setProviders] = useState<WireProviderOption[]>([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
-  const [form, setForm] = useState<{ name: string; role: string; provider: string; model: string }>({ name: '', role: '', provider: '', model: '' })
+  const [form, setForm] = useState<{ name: string; role: string; provider: string; model: string; reasoningEffort: string }>({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
   // B3：设置页维护的角色预设（只读镜像，用于"选中即填充"）。
   const [presetList, setPresetList] = useState<WireRolePreset[]>([])
   /** B3+：当前下拉里选中的预设 id（修 `value=""` 导致"选完回弹、看不出选了什么"）。 */
@@ -767,17 +767,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     setManageOpen(true)
     setModelsLoaded(false)
     // B3+：表单为空时用**缺省预设**预填（单一缺省值语义）；没有缺省就保持空表单。
+    // 预填走 applyPreset（唯一填充点），不在此处另抄一份字段映射。
     const fallback = presetList.find((preset) => preset.id === defaultPresetId)
-    if (fallback !== undefined) {
-      setSelectedPresetId(fallback.id)
-      setForm((previous) => ({
-        ...previous,
-        role: fallback.role,
-        provider: fallback.provider ?? '',
-        model: fallback.model ?? '',
-      }))
-    }
-    void rpc<{ providers: WireProviderOption[] }>('roundtable/models.list', {})
+    if (fallback !== undefined) applyPreset(fallback.id)
+    void rpc<WireModelCatalog>('roundtable/models.list', {})
       .then((result) => {
         if (result.ok && Array.isArray(result.value.providers)) setProviders(result.value.providers)
         setModelsLoaded(true)
@@ -807,7 +800,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
 
   const closeManage = (): void => {
     setManageOpen(false)
-    setForm({ name: '', role: '', provider: '', model: '' })
+    setForm({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
     setSelectedPresetId('')
   }
 
@@ -874,7 +867,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     const role = form.role.trim()
     const provider = form.provider
     const model = form.model
-    const text = `新增了专家 ${key}${role !== '' ? `（角色：${role}）` : ''}${provider !== '' ? `，模型 ${provider}/${model}` : '，使用主持人默认模型'}`
+    const reasoningEffort = form.reasoningEffort.trim()
+    const effortSuffix = reasoningEffort === '' ? '' : ` @ ${reasoningEffort}`
+    const text = `新增了专家 ${key}${role !== '' ? `（角色：${role}）` : ''}${provider !== '' ? `，模型 ${provider}/${model}${effortSuffix}` : '，使用主持人默认模型'}`
     void rpc<unknown>('roundtable/user-actions.append', {
       meetingId: meeting.id,
       kind: 'add-node',
@@ -882,12 +877,15 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       role,
       provider,
       model,
+      // 档位必须走**结构化字段**：只塞进 text 会让主持人只能靠解析自然语言取它，
+      // 静默丢失是必然的（且这份 text 正是第二份真相的来源）。
+      reasoningEffort,
       text,
     })
       .then((result) => {
         if (result.ok) {
           setToast({ kind: 'ok', text: translate('manageAddedSoon').replace('{name}', key) })
-          setForm({ name: '', role: '', provider: '', model: '' })
+          setForm({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
           setSelectedPresetId('')
           void refresh()
         } else {
@@ -898,10 +896,22 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   }
 
   const handleProviderChange = (provider: string): void => {
-    setForm((previous) => ({ ...previous, provider, model: '' }))
+    // 换路由 ⇒ 档位一并清空（旧档位可能不在新模型的词表里）。
+    setForm((previous) => ({ ...previous, provider, model: '', reasoningEffort: '' }))
   }
 
-  /** B3：选中预设 → 填充 role/provider/model；专家 key 仍由用户自己填。 */
+  /** 专家管理表单当前所选模型声明的档位词表（与设置页同一个数据契约）。 */
+  const formEfforts = (): { id: string; name: string; description?: string }[] => {
+    const provider = providers.find((candidate) => candidate.id === form.provider)
+    const model = provider?.models.find((candidate) => candidate.id === form.model)
+    return model?.reasoning?.efforts ?? []
+  }
+
+  /**
+   * B3：选中预设 → 填充 role/provider/model/reasoningEffort；专家 key 仍由用户自己填。
+   *
+   * **唯一填充点**：缺省预设预填也走这里，不另写第二份（两份会各自漂移）。
+   */
   const applyPreset = (id: string): void => {
     setSelectedPresetId(id)
     const preset = presetList.find((candidate) => candidate.id === id)
@@ -911,6 +921,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       role: preset.role,
       provider: preset.provider ?? '',
       model: preset.model ?? '',
+      reasoningEffort: preset.reasoningEffort ?? '',
     }))
   }
 
@@ -1557,6 +1568,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                       return (
                         <option key={preset.id} value={preset.id}>
                           {preset.name}{routed ? ` · ${preset.provider}/${preset.model}` : ''}
+                          {preset.reasoningEffort !== undefined && preset.reasoningEffort !== '' ? ` @${preset.reasoningEffort}` : ''}
                         </option>
                       )
                     })}
@@ -1597,13 +1609,34 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                   className={styles.manageSelect}
                   value={form.model}
                   disabled={form.provider === '' || !modelsLoaded}
-                  onChange={(event) => setForm((previous) => ({ ...previous, model: event.target.value }))}
+                  onChange={(event) => {
+                    // 换模型 ⇒ 清档位（与 handleProviderChange 同一口径）。
+                    const model = event.target.value
+                    setForm((previous) => ({ ...previous, model, reasoningEffort: '' }))
+                  }}
                 >
                   <option value="">{translate('manageModelInherit')}</option>
                   {(providers.find((provider) => provider.id === form.provider)?.models ?? []).map((model) => (
                     <option key={model.id} value={model.id}>{model.name || model.id}</option>
                   ))}
                 </select>
+              </div>
+              <div className={styles.manageFormRow}>
+                <label className={styles.manageLabel}>{translate('settingsPresetEffortTitle')}</label>
+                <select
+                  className={styles.manageSelect}
+                  value={form.reasoningEffort}
+                  disabled={formEfforts().length === 0}
+                  onChange={(event) => setForm((previous) => ({ ...previous, reasoningEffort: event.target.value }))}
+                >
+                  <option value="">{translate('manageModelInherit')}</option>
+                  {formEfforts().map((effort) => (
+                    <option key={effort.id} value={effort.id}>{effort.name || effort.id}</option>
+                  ))}
+                </select>
+                {form.model !== '' && formEfforts().length === 0 ? (
+                  <span className={styles.manageHint}>{translate('settingsPresetEffortUnavailable')}</span>
+                ) : null}
               </div>
               <button type="button" className={styles.manageAddBtn} onClick={submitAdd}>
                 {translate('manageAddBtn')}

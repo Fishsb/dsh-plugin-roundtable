@@ -107,6 +107,8 @@ export const ROLE_PRESET_MAX = 50
 const ROLE_PRESET_ID_MAX = 64
 const ROLE_PRESET_NAME_MAX = 40
 const ROLE_PRESET_ROLE_MAX = 400
+/** 思考强度 id 上限（宿主档位 id 是短标识，如 `off`/`low`/`high`/`max`）。 */
+const ROLE_PRESET_EFFORT_MAX = 40
 
 /**
  * 把任意输入收敛成合法的角色预设清单（B3）。
@@ -126,7 +128,14 @@ export function sanitizeRolePresets(value: unknown): RolePreset[] {
   for (const item of value) {
     if (out.length >= ROLE_PRESET_MAX) break
     if (item === null || typeof item !== 'object') continue
-    const raw = item as { id?: unknown; name?: unknown; role?: unknown; provider?: unknown; model?: unknown }
+    const raw = item as {
+      id?: unknown
+      name?: unknown
+      role?: unknown
+      provider?: unknown
+      model?: unknown
+      reasoningEffort?: unknown
+    }
     const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, ROLE_PRESET_NAME_MAX) : ''
     const role = typeof raw.role === 'string' ? raw.role.trim().slice(0, ROLE_PRESET_ROLE_MAX) : ''
     if (name === '' || role === '') continue
@@ -136,14 +145,180 @@ export function sanitizeRolePresets(value: unknown): RolePreset[] {
     const provider = typeof raw.provider === 'string' ? raw.provider.trim() : ''
     const model = typeof raw.model === 'string' ? raw.model.trim() : ''
     const routed = provider !== '' && model !== ''
+    // effort 是**可选**档位：空 = 继承主持人（沿用宿主 provider/model 的成对折叠口径）。
+    const effort = typeof raw.reasoningEffort === 'string'
+      ? raw.reasoningEffort.trim().slice(0, ROLE_PRESET_EFFORT_MAX)
+      : ''
     out.push({
       id,
       name,
       role,
       ...(routed ? { provider, model } : {}),
+      ...(effort === '' ? {} : { reasoningEffort: effort }),
     })
   }
   return out
+}
+
+/* ------------------------------------------------------------------ *
+ * 模型目录（A2/A12）：词表唯一来源 = ctx.llm.resolveModelInfo
+ * ------------------------------------------------------------------ */
+
+/** 每模型的一条推理档位（逐字沿用宿主 `reasoning.efforts[]` 的 id/name）。 */
+export interface ModelCatalogEffort {
+  id: string
+  name: string
+  description?: string
+}
+
+/** 宿主 `resolveModelInfo(...).reasoning` 的收敛形状；**缺席 = 该模型不提供推理档位**。 */
+export interface ModelCatalogReasoning {
+  efforts: ModelCatalogEffort[]
+  defaultEffort?: string
+}
+
+export interface ModelCatalogModel {
+  id: string
+  name: string
+  reasoning?: ModelCatalogReasoning
+}
+
+export interface ModelCatalogProvider {
+  id: string
+  name: string
+  models: ModelCatalogModel[]
+}
+
+/** 一次目录读取失败（provider 粒度，一条 provider 至多一条）。 */
+export interface ModelCatalogFailure {
+  id: string
+  name: string
+  message: string
+}
+
+export interface ModelCatalog {
+  providers: ModelCatalogProvider[]
+  failures: ModelCatalogFailure[]
+}
+
+/** 本插件用到的宿主 `llm` 服务最小面（只读目录，不发起任何请求）。 */
+export interface ModelCatalogLlm {
+  listProviders(): { id: string; name: string }[]
+  listModels(provider: string): Promise<{ id: string; name: string }[]>
+  resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<{
+    id: string
+    name: string
+    reasoning?: { efforts: { id: string; name: string; description?: string }[]; defaultEffort?: string }
+  }>
+}
+
+/** 把任意抛错收敛成一句可显示的话（与宿主 `buildModelCatalog` 同口径）。 */
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 读取一个精确模型的档位词表。
+ *
+ * 宿主语义（`dsh-llm` 的 `normalizeModelInfo`）：
+ *   - 模型**不提供**推理 ⇒ `reasoning` 字段**缺席**（不是空对象）；
+ *   - `efforts` 为空数组属**非法**，宿主直接抛 `INVALID_MODEL_REASONING`；
+ *   - `defaultEffort` **不恒给**，且必须落在 `efforts[].id` 里。
+ * 所以这里「字段缺席 / 空数组 / 抛错」统一收敛成 `undefined`（= 不提供档位），
+ * 而把**抛错**另记到 `failures`，避免「读不出来」伪装成「不支持推理」。
+ */
+async function probeReasoning(
+  llm: ModelCatalogLlm,
+  provider: string,
+  model: string,
+): Promise<{ reasoning?: ModelCatalogReasoning; error?: unknown }> {
+  try {
+    const info = await llm.resolveModelInfo(provider, model)
+    const reasoning = info?.reasoning
+    if (reasoning === undefined) return {}
+    const efforts: ModelCatalogEffort[] = []
+    const seen = new Set<string>()
+    for (const effort of Array.isArray(reasoning.efforts) ? reasoning.efforts : []) {
+      const id = typeof effort?.id === 'string' ? effort.id.trim() : ''
+      const name = typeof effort?.name === 'string' ? effort.name.trim() : ''
+      if (id === '' || name === '' || seen.has(id)) continue
+      seen.add(id)
+      efforts.push({
+        id,
+        name,
+        ...(typeof effort.description === 'string' && effort.description !== '' ? { description: effort.description } : {}),
+      })
+    }
+    if (efforts.length === 0) return {}
+    const requested = typeof reasoning.defaultEffort === 'string' ? reasoning.defaultEffort : ''
+    return {
+      reasoning: {
+        efforts,
+        ...(requested !== '' && seen.has(requested) ? { defaultEffort: requested } : {}),
+      },
+    }
+  } catch (error) {
+    return { error }
+  }
+}
+
+/**
+ * 组装设置页/专家管理面板用的模型目录（**可导出纯函数**，便于机检）。
+ *
+ * 两条硬约束：
+ *   1. 逐 provider 的 `listModels` 与逐模型的 `resolveModelInfo` 都**逐层兜底** ——
+ *      单模型读失败不得把整个 provider 清成空列表（旧写法 `catch { models = [] }`
+ *      正是这种"把单点故障放大成整段静默"）。
+ *   2. 失败进 `failures[]`（provider 粒度一条），而不是与"不支持推理"同形。
+ *      空 models 的 provider **仍然保留**（UI 可用性优先），不抄宿主的空组过滤。
+ */
+export async function buildModelCatalog(llm: ModelCatalogLlm | undefined): Promise<ModelCatalog> {
+  if (llm === undefined) return { providers: [], failures: [] }
+  const failures: ModelCatalogFailure[] = []
+  const providers: ModelCatalogProvider[] = []
+  for (const provider of llm.listProviders()) {
+    let models: { id: string; name: string }[] = []
+    try {
+      models = await llm.listModels(provider.id)
+    } catch (error) {
+      // Provider 级读取失败：记一条 failure，条目仍出现（空 models）。
+      failures.push({ id: provider.id, name: provider.name, message: failureMessage(error) })
+      providers.push({ id: provider.id, name: provider.name, models: [] })
+      continue
+    }
+    // 逐模型降级：单模型抛错只影响它自己（不波及同 provider 的其它模型）。
+    const probed = await Promise.all(
+      models.map(async (model) => ({
+        model,
+        ...(await probeReasoning(llm, provider.id, model.id)),
+      })),
+    )
+    const broken = probed.filter((entry) => entry.error !== undefined)
+    const first = broken[0]
+    if (first !== undefined) {
+      failures.push({
+        id: provider.id,
+        name: provider.name,
+        message: `${failedModelIds(broken.map((entry) => entry.model.id))}: ${failureMessage(first.error)}`,
+      })
+    }
+    providers.push({
+      id: provider.id,
+      name: provider.name,
+      models: probed.map((entry) => ({
+        id: entry.model.id,
+        name: entry.model.name,
+        ...(entry.reasoning === undefined ? {} : { reasoning: entry.reasoning }),
+      })),
+    })
+  }
+  return { providers, failures }
+}
+
+/** 失败模型清单的人读形式（超过 3 个则折叠，避免把 37 条铺进一句话）。 */
+function failedModelIds(ids: string[]): string {
+  const head = ids.slice(0, 3).join(', ')
+  return ids.length <= 3 ? head : `${head} 等 ${ids.length} 个模型`
 }
 
 /**
@@ -540,6 +715,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               role?: unknown
               provider?: unknown
               model?: unknown
+              reasoningEffort?: unknown
               text?: unknown
             } | undefined
             const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
@@ -558,6 +734,11 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
                 role: typeof body?.role === 'string' && body.role.trim() !== '' ? body.role.trim() : undefined,
                 provider: typeof body?.provider === 'string' && body.provider.trim() !== '' ? body.provider.trim() : undefined,
                 model: typeof body?.model === 'string' && body.model.trim() !== '' ? body.model.trim() : undefined,
+                // 逐字段显式构造（**刻意不用 spread**）：客户端多塞的键不落库，
+                // 且新字段只在这里开口子，长度与空值口径与上面几项一致。
+                reasoningEffort: typeof body?.reasoningEffort === 'string' && body.reasoningEffort.trim() !== ''
+                  ? body.reasoningEffort.trim().slice(0, ROLE_PRESET_EFFORT_MAX)
+                  : undefined,
                 text,
               }
               await appendUserAction(stateRoot, meetingId, action)
@@ -574,32 +755,17 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
           }
           case 'roundtable/models.list': {
             // Model dropdown for the expert-management UI: every registered
-            // provider route plus the models it advertises (advisory catalog).
-            const llm = ctx.get('llm') as
-              | {
-                  listProviders(): { id: string; name: string }[]
-                  listModels(provider: string): Promise<{ id: string; name: string }[]>
-                }
-              | undefined
-            if (llm === undefined) return ok({ providers: [] })
-            const providers: { id: string; name: string; models: { id: string; name: string }[] }[] = []
-            for (const provider of llm.listProviders()) {
-              let models: { id: string; name: string }[] = []
-              try {
-                models = await llm.listModels(provider.id)
-              } catch {
-                // A provider may fail to enumerate its catalog (e.g. missing
-                // key); it still appears with an empty model list so the UI
-                // stays usable.
-                models = []
-              }
-              providers.push({
-                id: provider.id,
-                name: provider.name,
-                models: models.map((model) => ({ id: model.id, name: model.name })),
-              })
-            }
-            return ok({ providers })
+            // provider route plus the models it advertises (advisory catalog),
+            // each model carrying the reasoning-effort vocabulary the adapter
+            // declares.
+            //
+            // `listModels()` NEVER carries `reasoning` — only `resolveModelInfo`
+            // does. Reading the field off `listModels()` therefore yields
+            // `undefined` forever, and the effort dropdown would silently show
+            // nothing. The extra hop below is pure in-memory work (no provider
+            // I/O), so no cache is warranted.
+            const llm = ctx.get('llm') as ModelCatalogLlm | undefined
+            return ok<ModelCatalog>(await buildModelCatalog(llm))
           }
           case 'roundtable/kb.path.set': {
             // Knowledge-base path (阅览版): validated, stored on the meeting,

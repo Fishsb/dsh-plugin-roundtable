@@ -214,6 +214,10 @@ export type RoundTableKey =
   | 'settingsPresetInvalid'
   | 'settingsPresetLimit'
   | 'settingsPresetUpdated'
+  | 'settingsPresetEffortTitle'
+  | 'settingsPresetEffortInheritHint'
+  | 'settingsPresetEffortUnavailable'
+  | 'settingsPresetEffortOnlyNew'
   | 'managePresetLabel'
   | 'managePresetPlaceholder'
   | 'managePresetEmpty'
@@ -434,6 +438,10 @@ export const zh: Record<RoundTableKey, string> = {
   settingsPresetInvalid: '预设名称与角色说明都不能为空',
   settingsPresetLimit: '预设数量已达上限（{max} 条），请先删除不用的',
   settingsPresetUpdated: '预设已更新',
+  settingsPresetEffortTitle: '思考强度',
+  settingsPresetEffortInheritHint: '选「继承」= 跟随主持人；改了只影响之后新加入的专家。',
+  settingsPresetEffortUnavailable: '当前模型未提供推理等级。',
+  settingsPresetEffortOnlyNew: '只影响之后新加入的专家，已在场的专家不变。',
   managePresetLabel: '角色预设',
   managePresetPlaceholder: '选择预设自动填充',
   managePresetEmpty: '还没有预设：去「设置 → 圆桌会议 → 角色预设」新建一个。',
@@ -648,6 +656,10 @@ export const en: Record<RoundTableKey, string> = {
   settingsPresetInvalid: 'Preset name and role description are both required',
   settingsPresetLimit: 'Preset limit reached ({max}) — delete one first',
   settingsPresetUpdated: 'Presets updated',
+  settingsPresetEffortTitle: 'Reasoning effort',
+  settingsPresetEffortInheritHint: '"Inherit" follows the captain; a change only affects experts added afterwards.',
+  settingsPresetEffortUnavailable: 'This model provides no reasoning levels.',
+  settingsPresetEffortOnlyNew: 'Only affects experts added afterwards; seated experts stay unchanged.',
   managePresetLabel: 'Role preset',
   managePresetPlaceholder: 'Pick a preset to autofill',
   managePresetEmpty: 'No presets yet — create one under Settings → RoundTable → Role presets.',

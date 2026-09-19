@@ -2,6 +2,8 @@
 
 > **本目录 `D:\lk\FF\dsh-plugin-roundtable` 是本机唯一真相。**
 > 上游 `9931666/dsh-plugin-roundtable` 仅作基线，不回合并也不依赖其更新。
+> 远端自维护仓：`https://github.com/Fishsb/dsh-plugin-roundtable`（2026-09-20 在作者账号下新建，
+> 与上游**无 fork 关系**，`origin/master` 即本目录 master）。
 > 2026-09-17 从 `D:\lk\deepseek\plugins\dsh-plugin-roundtable-main` 迁入工作区。
 
 ## 零、目录与部署关系（先读这一节）
