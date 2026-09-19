@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { RpcCaller, RoundTablePrefs, WireFeedbackEntry, WireProviderOption, WireRolePreset } from './wire.ts'
+import type { RoundTableKey } from './locales.ts'
 import styles from './RoundTableSettings.module.css'
 
 export interface RoundTableSettingsInjected {
@@ -23,16 +24,14 @@ const RATING_LABEL: Record<WireFeedbackEntry['rating'], string> = {
   bad: '👎',
 }
 
-/** R3：右栏面板的稳定 id 与文案键（与 host `ROUNDTABLE_PANELS` 一一对应）。 */
-const PANEL_KEYS: ReadonlyArray<{ id: string; labelKey: string }> = [
-  { id: 'agents', labelKey: 'agents' },
-  { id: 'tasks', labelKey: 'tasks' },
-  { id: 'kb', labelKey: 'kb' },
-  { id: 'skills', labelKey: 'skillsTitle' },
-  { id: 'activity', labelKey: 'activity' },
-  { id: 'review', labelKey: 'reviewPanelTitle' },
-  { id: 'files', labelKey: 'files' },
-]
+/** R3：右栏面板的文案键（id → 文案）。
+ *  **id 集合以 host 的 `ROUNDTABLE_PANELS` 为准**：`prefs.get` 现回传 `panels`，
+ *  本页只保留映射，不再自带一份 id 清单（旧 `PANEL_KEYS` 是第三处副本）。
+ *  映射值收紧为 `RoundTableKey`，这样拼错文案键过不了 typecheck。 */
+const PANEL_LABELS: Readonly<Record<string, RoundTableKey>> = {
+  agents: 'agents',
+  kb: 'kb',
+}
 
 /** B3：预设条数上限，与 host `rpc.ts` 的 `ROLE_PRESET_MAX` 保持一致
  *  （客户端提前拦截，服务端仍然会截断，两层都有）。 */
@@ -248,6 +247,20 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     if (editingPresetId === id) closePresetForm()
   }
 
+  /**
+   * B3+：把某条预设设为**缺省值**（单一缺省，沿用宿主 `agent-presets.default` 语义；
+   * 点同一条即取消）。缺省值只在"专家管理面板打开且表单为空"时用于预填，
+   * 不改变任何既有语义（预置仍为空、加速仍靠手动选择）。
+   */
+  const toggleDefaultPreset = (id: string): void => {
+    if (prefs === null) return
+    const next: RoundTablePrefs = { ...prefs, defaultPresetId: prefs.defaultPresetId === id ? '' : id }
+    setPrefs(next)
+    void rpc<RoundTablePrefs>('roundtable/prefs.set', { ...next }).then((result) => {
+      if (result.ok) setPrefs(result.value)
+    })
+  }
+
   const formatTs = (ts: number): string => {
     try {
       const date = new Date(ts)
@@ -327,19 +340,22 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
       <div className={styles.sectionTitle}>{t('settingsPanelsTitle')}</div>
       <div className={styles.field}>
         <div className={styles.panelToggles}>
-          {PANEL_KEYS.map((panel) => {
-            const visible = !(Array.isArray(prefs.hiddenPanels) ? prefs.hiddenPanels : []).includes(panel.id)
+          {(prefs.panels !== undefined && prefs.panels.length > 0 ? prefs.panels : Object.keys(PANEL_LABELS)).map((id) => {
+            const labelKey = PANEL_LABELS[id]
+            // host 新增了面板而客户端还没跟上：宁可不渲染，也不给一个"点了没用"的死开关
+            if (labelKey === undefined) return null
+            const visible = !(Array.isArray(prefs.hiddenPanels) ? prefs.hiddenPanels : []).includes(id)
             return (
               <button
-                key={panel.id}
+                key={id}
                 type="button"
                 className={visible ? styles.panelToggleOn : styles.panelToggleOff}
                 aria-pressed={visible}
-                title={`${t(panel.labelKey)} · ${visible ? t('panelOn') : t('panelOff')}`}
-                onClick={() => togglePanel(panel.id)}
+                title={`${t(labelKey)} · ${visible ? t('panelOn') : t('panelOff')}`}
+                onClick={() => togglePanel(id)}
               >
                 <span className={styles.panelDot} aria-hidden="true" />
-                <span className={styles.panelToggleLabel}>{t(panel.labelKey)}</span>
+                <span className={styles.panelToggleLabel}>{t(labelKey)}</span>
               </button>
             )
           })}
@@ -373,7 +389,12 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
             {presets.map((preset) => (
               <div key={preset.id} className={styles.presetItem}>
                 <div className={styles.presetInfo}>
-                  <div className={styles.presetName}>{preset.name}</div>
+                  <div className={styles.presetName}>
+                    {preset.name}
+                    {prefs.defaultPresetId === preset.id ? (
+                      <span className={styles.presetDefaultBadge}>{t('settingsPresetDefaultBadge')}</span>
+                    ) : null}
+                  </div>
                   <div className={styles.presetMeta}>{preset.role}</div>
                   <div className={styles.presetRoute}>
                     {preset.provider !== undefined && preset.provider !== '' && preset.model !== undefined && preset.model !== ''
@@ -382,6 +403,9 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
                   </div>
                 </div>
                 <div className={styles.presetActions}>
+                  <button type="button" className={styles.presetBtn} onClick={() => toggleDefaultPreset(preset.id)}>
+                    {prefs.defaultPresetId === preset.id ? t('settingsPresetClearDefault') : t('settingsPresetSetDefault')}
+                  </button>
                   <button type="button" className={styles.presetBtn} onClick={() => openPresetForm(preset)}>
                     {t('settingsPresetEdit')}
                   </button>

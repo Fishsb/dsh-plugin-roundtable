@@ -20,11 +20,20 @@ export type RoundTableKey =
   | 'tokensBudget'
   | 'pendingDecision'
   | 'pendingDecisionOptions'
+  | 'pendingDecisionHint'
+  | 'manageEffectiveHint'
+  | 'manageActionsApplied'
+  | 'meetingDeleteDetail'
+  | 'tokensBudgetHint'
   | 'gatewayDigest'
   | 'noDigest'
   | 'edgeSetForward'
   | 'edgeSetBidirectional'
   | 'edgeRemove'
+  | 'edgeScopeHint'
+  | 'edgeLegend'
+  | 'edgeConnected'
+  | 'portConnect'
   | 'activityRunning'
   | 'activityIdle'
   | 'activityReady'
@@ -42,12 +51,9 @@ export type RoundTableKey =
   | 'fetchFailed'
   | 'meetingSelect'
   | 'agents'
-  | 'tasks'
   | 'kb'
   | 'activity'
-  | 'files'
   | 'kbEmpty'
-  | 'filesEmpty'
   | 'noActivity'
   | 'editAgents'
   | 'editKb'
@@ -60,7 +66,7 @@ export type RoundTableKey =
   | 'kbSaveFailed'
   | 'kbFiles'
   | 'kbLoadHint'
-  | 'kbContentChanged'
+  | 'kbChanged'
   | 'kbBrowseHint'
   | 'kbNotSet'
   | 'meetingDelete'
@@ -108,6 +114,10 @@ export type RoundTableKey =
   | 'feedbackAskSubmitted'
   | 'feedbackAskFailed'
   | 'pendingBadge'
+  | 'usageButton'
+  | 'usageNote'
+  | 'usageUnavailable'
+  | 'usageFailed'
   | 'manageTitle'
   | 'managePendingNote'
   | 'manageExisting'
@@ -129,7 +139,6 @@ export type RoundTableKey =
   | 'manageModelInherit'
   | 'manageAddBtn'
   | 'manageAddedSoon'
-  | 'manageEffectiveHint'
   | 'manageClose'
   | 'manageNoExperts'
   | 'reviewTitle'
@@ -146,8 +155,6 @@ export type RoundTableKey =
   | 'reviewClose'
   | 'reviewBadge'
   | 'reviewOpen'
-  | 'reviewPanelTitle'
-  | 'reviewPanelEmpty'
   | 'reviewStatusReady'
   | 'reviewStatusReviewing'
   | 'reviewStatusDone'
@@ -171,6 +178,9 @@ export type RoundTableKey =
   | 'reviewImpactOk'
   | 'reviewExportHint'
   | 'settingsPresetsTitle'
+  | 'settingsPresetSetDefault'
+  | 'settingsPresetClearDefault'
+  | 'settingsPresetDefaultBadge'
   | 'settingsPresetsHint'
   | 'settingsPresetsEmpty'
   | 'settingsPresetName'
@@ -212,11 +222,19 @@ export const zh: Record<RoundTableKey, string> = {
   tokensBudget: 'Token',
   pendingDecision: '待人类决策',
   pendingDecisionOptions: '选项',
+  pendingDecisionHint: '请回到本对话的聊天窗口，在选项卡片里点一个选项回答；答完后这里会自动消失。',
+  manageActionsApplied: '已生效：主持人执行了待办里的专家改动。',
+  meetingDeleteDetail: '会议记录、针锋相对评审记录与导出文件（export.md）会一起删除，无法恢复。想留档请先回聊天窗口说「导出这场会议」。',
+  tokensBudgetHint: '按发言文本估算，不含系统提示词与工具开销',
   gatewayDigest: '汇聚网关 · 结构化摘要',
   noDigest: '（暂无发言）',
   edgeSetForward: '设为单向通道',
   edgeSetBidirectional: '设为双向通道',
   edgeRemove: '删除连线',
+  edgeScopeHint: '这条线只表示主持人按此顺序转达。专家之间互不相识，收不到彼此的消息；跨专家讨论一律由主持人代转。',
+  edgeLegend: '连线含义',
+  edgeConnected: '已连上 {from} → {to}（线只表示主持人照此转达）',
+  portConnect: '从此端口拖出连线',
   activityRunning: '工作中',
   activityIdle: '空闲',
   activityReady: '待唤醒',
@@ -234,12 +252,9 @@ export const zh: Record<RoundTableKey, string> = {
   fetchFailed: '拉取会议状态失败，正在重试…',
   meetingSelect: '切换会议',
   agents: '专家',
-  tasks: '分工',
   kb: '知识库',
   activity: '发言记录',
-  files: '产出文件',
   kbEmpty: '该文件夹内暂无文件',
-  filesEmpty: '暂无文件产出',
   noActivity: '（暂无发言）',
   editAgents: '新增 / 修改专家',
   editKb: '知识库管理',
@@ -252,7 +267,7 @@ export const zh: Record<RoundTableKey, string> = {
   kbSaveFailed: '保存知识库路径失败',
   kbFiles: '文件列表',
   kbLoadHint: '输入路径并保存后，这里会显示文件夹内的文件列表',
-  kbContentChanged: '已修改知识库部分内容',
+  kbChanged: '内容已变更',
   kbBrowseHint: '仅供阅览：点击文件无反应；专家需要内容时由主持人读取并转交。',
   kbNotSet: '未设置知识库路径',
   meetingDelete: '删除会议',
@@ -281,6 +296,10 @@ export const zh: Record<RoundTableKey, string> = {
   settingsExpertMaxOpinions: '专家每轮最多意见数',
   settingsExpertMaxOpinionsHint: '每轮最多提出的意见条数（提示词约束）；0 = 不限制。',
   pendingBadge: '{n} 条操作待下一轮生效',
+  usageButton: '查看逐节点用量',
+  usageNote: 'provider 上报值；s = 该席 agent 累计耗时（~ 进行中）；预算条是本地字符估算，口径不同',
+  usageUnavailable: '无 provider 值（节点无会话或宿主未挂投影）',
+  usageFailed: '用量读取失败',
   manageTitle: '专家管理',
   managePendingNote: '以下操作已记录，主持人将在下一轮对话中逐条执行；执行失败会保留记录。',
   manageExisting: '现有专家',
@@ -302,7 +321,7 @@ export const zh: Record<RoundTableKey, string> = {
   manageModelInherit: '（继承主持人默认）',
   manageAddBtn: '加入队列',
   manageAddedSoon: '已记录：专家 {name} 将在下一轮加入',
-  manageEffectiveHint: '改动将在主持人下一轮对话中正式起效（UI 会先行标记状态）。',
+  manageEffectiveHint: '改动会记下来，主持人下次回话时才真正生效。想立刻生效，回到聊天窗口发一句「继续」即可。',
   manageClose: '关闭',
   manageNoExperts: '暂无专家，可通过下方表单新增',
   reviewTitle: '针锋相对 · 方案评审',
@@ -319,8 +338,6 @@ export const zh: Record<RoundTableKey, string> = {
   reviewClose: '关闭',
   reviewBadge: '针锋相对',
   reviewOpen: '打开评审',
-  reviewPanelTitle: '分针记录',
-  reviewPanelEmpty: '暂无评审记录',
   reviewStatusReady: '已就绪',
   reviewStatusReviewing: '评审中',
   reviewStatusDone: '已完成',
@@ -363,6 +380,9 @@ export const zh: Record<RoundTableKey, string> = {
   feedbackAskSubmitted: '谢谢反馈！可随时在设置 → 圆桌会议 → 用户反馈中关闭或清空。',
   feedbackAskFailed: '反馈提交失败',
   settingsPresetsTitle: '角色预设',
+  settingsPresetSetDefault: '设为缺省',
+  settingsPresetClearDefault: '取消缺省',
+  settingsPresetDefaultBadge: '缺省',
   settingsPresetsHint: '自己建几个常用角色，之后在会议的「专家管理」里选中即可自动填好角色说明与模型，不必每次手打。预设是全局偏好，改动不会影响已经创建的会议；插件不预置任何内置角色。',
   settingsPresetsEmpty: '还没有预设。填下面两个必填项就能建第一条。',
   settingsPresetName: '预设名称',
@@ -398,11 +418,19 @@ export const en: Record<RoundTableKey, string> = {
   tokensBudget: 'Tokens',
   pendingDecision: 'Awaiting human decision',
   pendingDecisionOptions: 'Options',
+  pendingDecisionHint: "Answer it in this conversation's chat window — pick an option on the card; this banner disappears once you answer.",
+  manageActionsApplied: "Done: the captain applied your pending expert changes.",
+  meetingDeleteDetail: 'Its transcript, review record and export.md are removed for good. To keep a copy, first say “export this meeting” in the chat window.',
+  tokensBudgetHint: 'Estimated from spoken text only — excludes system prompt and tool overhead',
   gatewayDigest: 'Aggregation gateway · structured digest',
   noDigest: '(no contributions yet)',
   edgeSetForward: 'Set forward',
   edgeSetBidirectional: 'Set bidirectional',
   edgeRemove: 'Remove edge',
+  edgeScopeHint: "This line only shows how the captain passes things along. The experts don't know about each other and never receive each other's messages — the captain relays everything.",
+  edgeLegend: 'What a line means',
+  edgeConnected: 'Connected {from} → {to} (the line only means the captain relays this way)',
+  portConnect: 'Drag from this port to connect',
   activityRunning: 'working',
   activityIdle: 'idle',
   activityReady: 'ready',
@@ -420,12 +448,9 @@ export const en: Record<RoundTableKey, string> = {
   fetchFailed: 'Failed to fetch meeting state, retrying…',
   meetingSelect: 'Switch meeting',
   agents: 'Agents',
-  tasks: 'Tasks',
   kb: 'Knowledge base',
   activity: 'Activity',
-  files: 'Files',
   kbEmpty: 'No files in this folder yet',
-  filesEmpty: 'No file outputs yet',
   noActivity: '(no contributions yet)',
   editAgents: 'Add or edit agents',
   editKb: 'Manage knowledge base',
@@ -438,7 +463,7 @@ export const en: Record<RoundTableKey, string> = {
   kbSaveFailed: 'Failed to save the knowledge-base path',
   kbFiles: 'Files',
   kbLoadHint: 'Enter a path and save to see the file list here',
-  kbContentChanged: 'I have changed some knowledge-base content',
+  kbChanged: 'changed since last read',
   kbBrowseHint: 'Browse-only: clicking a file does nothing; the captain reads and relays content to experts when needed.',
   kbNotSet: 'No knowledge-base path set',
   meetingDelete: 'Delete meeting',
@@ -467,6 +492,10 @@ export const en: Record<RoundTableKey, string> = {
   settingsExpertMaxOpinions: 'Max opinions per expert round',
   settingsExpertMaxOpinionsHint: 'Opinion count cap per round (prompt constraint); 0 = unlimited.',
   pendingBadge: '{n} pending action(s), effective next round',
+  usageButton: "Per-node usage",
+  usageNote: "Provider-reported; s = that seat's agent time (~ = turn in flight); the budget bar is a local text estimate — different measures",
+  usageUnavailable: "no provider value (no live session or projection unmounted)",
+  usageFailed: "Failed to read usage",
   manageTitle: 'Expert management',
   managePendingNote: 'The actions below are recorded; the captain executes them one by one next round. Failed actions stay recorded.',
   manageExisting: 'Existing experts',
@@ -488,7 +517,7 @@ export const en: Record<RoundTableKey, string> = {
   manageModelInherit: '(inherit captain default)',
   manageAddBtn: 'Queue',
   manageAddedSoon: 'Recorded: expert {name} will join next round',
-  manageEffectiveHint: 'Changes take effect when the captain acts in the next round (the UI marks pending states right away).',
+  manageEffectiveHint: 'Your change is recorded; it takes effect when the captain next replies. Want it now? Say "continue" in the chat window.',
   manageClose: 'Close',
   manageNoExperts: 'No experts yet — add one with the form below',
   reviewTitle: '针锋相对 · plan review',
@@ -505,8 +534,6 @@ export const en: Record<RoundTableKey, string> = {
   reviewClose: 'Close',
   reviewBadge: 'Adversarial review',
   reviewOpen: 'Open review',
-  reviewPanelTitle: 'Review log',
-  reviewPanelEmpty: 'No review records yet',
   reviewStatusReady: 'ready',
   reviewStatusReviewing: 'reviewing',
   reviewStatusDone: 'done',
@@ -549,6 +576,9 @@ export const en: Record<RoundTableKey, string> = {
   feedbackAskSubmitted: 'Thanks! Manage or clear feedback anytime under Settings → RoundTable → User feedback.',
   feedbackAskFailed: 'Failed to submit feedback',
   settingsPresetsTitle: 'Role presets',
+  settingsPresetSetDefault: "Set as default",
+  settingsPresetClearDefault: "Clear default",
+  settingsPresetDefaultBadge: "default",
   settingsPresetsHint: 'Save the roles you use often; picking one in the meeting\'s expert manager fills in the role text and model for you, so you stop retyping them. Presets are global preferences — editing them never changes a meeting that already exists, and no built-in role is shipped.',
   settingsPresetsEmpty: 'No presets yet. The two required fields below create the first one.',
   settingsPresetName: 'Preset name',

@@ -106,7 +106,12 @@ const libConfig: UserConfig = {
   platform: 'node',
   target: 'es2024',
   dts: false,
-  clean: true,
+  // ⚠ 不能用 `clean: true`：tsdown 的 clean 是 glob 递归删 outDir 下**一切**，
+  // 而 `lib/types/**` 是 `tsc --emitDeclarationOnly` 的产物、且 `lib/` 被 .gitignore
+  // 忽略（删了不可从版本库恢复）。单跑 `bundle:client` 会静默把类型声明全部删掉，
+  // 且没有任何测试会红。只清构建器自己产出的三种文件，保类型声明。
+  // （漏洞由「UI 优化会审」实现席以探针实证；见 release-notes/v0.2.39.md）
+  clean: ['lib/*.js', 'lib/*.js.map', 'lib/*.cjs'],
 }
 
 const clientBundleConfig: UserConfig = {

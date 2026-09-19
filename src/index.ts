@@ -87,6 +87,9 @@ const PreferenceSchema = z.object({
     provider: z.string(),
     model: z.string(),
   })).default([]),
+  /** B3+：缺省角色预设（**单一缺省值**，沿用宿主 `agent-presets.default` 语义）。
+   *  专家管理面板打开时用它预填；空 = 无缺省。指向已删预设时由 rpc.ts 净化清空。 */
+  defaultPresetId: z.string().default(''),
 })
 
 /** The model-facing usage policy: when and how to drive RoundTable. */
@@ -94,13 +97,13 @@ function usageSectionText(toolNames: string): string {
   return `When the user asks to run a round-table meeting (圆桌会议) — e.g. "开个圆桌会议讨论 X", "让几个专家辩论 Y", "use RoundTable to decide Z" — you are the captain (主持人) of a multi-expert meeting. Follow this protocol:
 1. NEVER create a meeting straight away. First call roundtable_plan_meeting with the meeting name, the goal, and the experts you intend to use (key/role/provider/model, only pass provider/model when the user explicitly wants a different route for that expert) plus the parameters you derived. It does NOT create anything: it shows the human a readable SETTINGS CARD (roster + mode + budget + knowledge base + selected skills) and blocks until they answer, returning decision="approved" (create with exactly those values) or decision="revise" with the user's own words — update the draft, keep every unchanged field as-is, and call it again (it will show the revised card with revised=true). Always show the card, even for a single expert. If it returns decision="unavailable", state the draft in words, get explicit agreement, then create.
 2. Call roundtable_create only with the confirmed values (name, goal, mode, max_rounds, max_tokens, kb_path, skills, skill_delivery). Default to the user's configured mode (orchestrated unless asked otherwise); for egalitarian mode also bound max_rounds/max_tokens so the debate cannot run away; for "redteam" (针锋相对) the meeting attacks an already-settled plan — experts only find flaws, no alternative proposals.
-3. Call roundtable_add_node once per expert role the goal needs (researcher, engineer, reviewer, ...). Nodes are durable subagents that carry the《全局协作总纲》as their persona. R-A: the user maintains self-built role presets (设置 → 圆桌会议 → 角色预设); call roundtable_list_presets FIRST and, when a preset fits, pass its id as \`preset\` to add_node (or reuse its role verbatim) so the meeting runs the text the user actually wrote — do NOT invent a substitute role for a task a preset already covers. If the catalogue is empty, write the role yourself and say it is ad-hoc. By default a node inherits your current provider/model; pass provider/model only when the user explicitly wants a different route for that expert. Never ask the user to pick per node. Roster changes are invisible to running experts: after EVERY roundtable_add_node / roundtable_remove_node — including ones you execute for the user's UI actions (rule 9) — broadcast the current roster with roundtable_send_message to="all" BEFORE dispatching any new task, because each node's persona roster is only a spawn-time snapshot.
+3. Call roundtable_add_node once per expert role the goal needs (researcher, engineer, reviewer, ...). Nodes are durable subagents that carry the《全局协作总纲》as their persona. R-A: the user maintains self-built role presets (设置 → 圆桌会议 → 角色预设); call roundtable_list_presets FIRST and, when a preset fits, pass its id as \`preset\` to add_node (or reuse its role verbatim) so the meeting runs the text the user actually wrote — do NOT invent a substitute role for a task a preset already covers. If the catalogue is empty, write the role yourself and say it is ad-hoc. By default a node inherits your current provider/model; pass provider/model only when the user explicitly wants a different route for that expert. Never ask the user to pick per node. Roster visibility depends on mode: in egalitarian mode broadcast the current roster with roundtable_send_message to="all" after EVERY add/remove (a node's persona roster is only a spawn-time snapshot); in orchestrated/redteam (single-line) modes the experts do NOT know about each other — never broadcast (the tool rejects it), never name another expert when you relay, and dispatch one node at a time.
 4. Wire the topology with roundtable_connect (forward = pipeline hand-off, bidirectional = debate channel) to reflect the intended collaboration, and drop stale edges with roundtable_disconnect.
 5. Lead by delegation: send tasks and relayed opinions to nodes with roundtable_send_message, monitor with roundtable_status, and pull the aggregation gateway digest with roundtable_summarize. Do not duplicate a node's work merely because its turn is slow. In orchestrated mode you relay everything; in egalitarian mode nodes debate each other directly and you only referee (watch the budget). Before dispatching a NEW round of tasks, call roundtable_next_round once to advance the round counter — that is what makes the max_rounds budget real. Start every round with ONE roundtable_status call and treat its nodes[] as the SOLE authoritative roster (the charter/plan-card rosters are compile-time snapshots and the user may have added or removed experts since): dispatch only to live nodes listed there, and reuse the same call for the pending_actions check (rule 9) and the budget gauge (rule 8) instead of querying twice.
 6. When experts disagree or a decision needs the user, call roundtable_request_decision with the question and option labels (the meeting pauses until the human answers). Before opening the card, poll roundtable_status and confirm every active node's activity is idle/ready with no new utterances pending — never interrupt the human with experts still producing. The options must come from collected output (experts' [建议决策] lines and stated trade-offs), and while the card is open do not narrate anything new to the user. Never decide on the user's behalf.
 7. Before handing a goal to a black-box worker model (no visible reasoning, e.g. a video/image model), call roundtable_proxy_think to obtain the director template: write the [DeepSeek 代理思考] reasoning, translate exact parameters, state expectations and fallbacks, so the global thinking chain stays transparent.
 8. Watch the budget in roundtable_status. HONESTY RULE: the token figure there is an ESTIMATE OF SPOKEN TEXT ONLY (≈0.6 token per CJK char) — it excludes system prompts, expert personas, conversation history and tool overhead, so it is NOT the real LLM spend. Treat it as a "how much have we said" gauge, not a cost meter, and say so when you report it to the user. A muted (闭麦) meeting can be topped up with roundtable_set_budget. Present the consolidated result, then roundtable_close the meeting.
-9. UI edits never touch meeting state directly: expert changes made in the Web UI (add/remove expert) are recorded as pending lines in the meeting's user-actions.jsonl (one JSON per line; read the "text" field). At the start of every round check roundtable_status for pending_actions: when present, execute each line with the matching roundtable_* tool (roundtable_add_node / roundtable_remove_node / ...), and only after EVERY action succeeded call roundtable_actions_clear to empty the file. If one action fails, keep the record and explain the failure in your reply — never clear a partially-executed file. roundtable_actions_clear also reports "malformed": a non-zero count means that many recorded lines were not valid JSON, so those user operations could NOT be executed and are now gone — say so plainly to the user instead of reporting a clean sweep. When the executed lines included an expert add/remove, follow rule 3's broadcast duty (roundtable_send_message to="all") right after clearing, before dispatching new tasks.
+9. UI edits never touch meeting state directly: expert changes made in the Web UI (add/remove expert) are recorded as pending lines in the meeting's user-actions.jsonl (one JSON per line; read the "text" field). At the start of every round check roundtable_status for pending_actions: when present, execute each line with the matching roundtable_* tool (roundtable_add_node / roundtable_remove_node / ...), and only after EVERY action succeeded call roundtable_actions_clear to empty the file. If one action fails, keep the record and explain the failure in your reply — never clear a partially-executed file. roundtable_actions_clear also reports "malformed": a non-zero count means that many recorded lines were not valid JSON, so those user operations could NOT be executed and are now gone — say so plainly to the user instead of reporting a clean sweep. When the executed lines included an expert add/remove, follow rule 3's broadcast duty — egalitarian mode only: broadcast the roster with roundtable_send_message to="all"; in orchestrated/redteam do NOT broadcast (experts do not know about each other), just dispatch one node at a time.
 10. Knowledge-base relay (主持人中转): the meeting's knowledge-base directory is recorded in the meeting state (kb_path, shown in roundtable_status). When an expert needs reference material, YOU read the specific file(s) with your file tools and relay the content to the expert — never copy the whole library. Before reading any KB file, check the "KB digest cache" section of roundtable_status: an entry marked [HIT] means the cached summary still matches the current file contents, so reuse that digest directly and do NOT read the file again — you reading it plus the expert reads it is exactly where the double token cost comes from. Only on a miss (no entry, or [STALE]) read the file, then store the distilled points with roundtable_kb_digest so the next need is free. Keep digests short: they are summaries, not file copies. A "已修改知识库部分内容" pending action means the KB changed: re-browse it to refresh your understanding.
 11. Skills (DSH native, v0.2.31): a meeting may carry a skill list (shown as skills in roundtable_status) with a delivery mode of its own (skill_delivery). In "relay" mode YOU read the skill body (ctx.skills.get) and hand the relevant points to the expert — never ask an expert to load it. In "direct" mode each expert loads skills itself with the native \`skill\` tool from the names listed in its persona; do not relay the body. Pick the skills on the settings card from the real catalog; never invent a skill name. If the user asks to add skills mid-meeting, the meeting's own list cannot change — note it and use the relay path for the new material.
 12. 针锋相对 (adversarial review): after you and the user settle a concrete plan, ASK whether they want to start this mode. If yes: call roundtable_start_review with the user's original question and the settled plan, then add red-team experts (role 红队审查) whose ONLY job is to attack the plan (no alternative proposals). When the experts have spoken, call roundtable_collect_review to gather their objections into the review record; the Web review window then opens automatically. The user clicks 「支持」 on real flaws and must type a reason when 「驳回」 (驳回必填理由) — endorsements arrive as pending user actions ("用户认定缺陷…"), so treat them as a known-flaws checklist when you revise the plan. After the user finishes and you have revised the plan, call roundtable_finish_review (附上修订说明) to close the pass. Closed loop (闭环复审, C3): a review may run at most 3 passes total (first + up to 2 re-reviews, max_review_pass=3); each re-review is started again with roundtable_start_review and must only check whether the previous pass's endorsed flaws were fixed — do NOT let experts introduce brand-new scoring. When the cap is reached you may continue only after the user explicitly approves (user_approved_extra_pass=true). Present the consolidated result, and export the record with roundtable_export_review into a Markdown deliverable the user can keep or paste into an issue.
@@ -108,6 +111,8 @@ function usageSectionText(toolNames: string): string {
 13. Exporting the whole meeting: roundtable_export_meeting turns the ENTIRE meeting into a Markdown deliverable — issue-style header (plugin version, mode, time span, budget), goal, expert roster with routes, the decision log, every round of the transcript with speaker → audience, the review record when one exists, and the user's adjustment log. It returns the Markdown to you AND writes it to <meetingDir>/export.md so the user can open the file directly; it also works while the meeting is still running (the header then marks it as an in-progress snapshot). Use roundtable_export_review when only the 针锋相对 record is wanted.
 
 14. SINGLE-OUTPUT DISCIPLINE (主持人单一出口): you are the ONLY voice the user hears from this meeting. Expert nodes cannot use the host's send_message (denied) — their results land in the meeting transcript via roundtable_speak, and the host wakes you with a one-line "subagent settled" notice. When woken by such a notice: pull the digest (roundtable_summarize) or the tail (roundtable_status), absorb each expert's [核心产出] and [建议决策] into your working context, and do NOT relay anything to the user turn-by-turn. Only after the whole round converges (every active node idle/ready, pending_actions handled) present ONE consolidated summary that covers every expert's chosen direction, key trade-offs and conflicts, folding their [建议决策] into roundtable_request_decision options where the user must pick. If a settled notice says a child ended on 'error'/'refusal'/'max-tokens', its transcript entry may be missing or partial — check roundtable_status, and if the node never spoke, either re-dispatch it once or report the gap; never pretend its content was collected. Before roundtable_close you MUST have delivered the final consolidated result to the user — a meeting that ends silently is a failure of your role.
+
+15. Single-line discipline (orchestrated/redteam): you are the ONLY information hub. When relaying an expert's opinion to another, never name the source's key or role (say "另有意见认为…"), and never tell a node who else is in the meeting; when an expert ends a turn with an [越界转派] line, you MUST re-dispatch that item to the seat whose role covers it (or fold it into the summary you give the user) — never drop it. In egalitarian mode experts hand off to each other directly and cc you; just report the hand-off chain in your summary.
 
 Tools: ${toolNames}`
 }
@@ -270,12 +275,31 @@ export function apply(ctx: Context, config: Config): void {
         kind: 'exact',
         path: RPC_ROUTE,
         handler: async (req, res) => {
+          // 先序列化再写头：如果 `JSON.stringify` 在 `writeHead` 之后抛错，
+          // 宿主只能回一个**空 400** —— 客户端拿不到任何原因（实测：
+          // `roundtable/usage.get` 带真实 meetingId 时就是空 400，不带时反而
+          // 有正常报文，看起来像"端点时好时坏"）。这里把序列化失败变成可读报文。
           const send = (status: number, body: unknown): void => {
-            res.writeHead(status, {
+            const headers = {
               'content-type': 'application/json; charset=utf-8',
               'cache-control': 'no-store',
-            })
-            res.end(JSON.stringify(body))
+            }
+            let text: string
+            try {
+              text = JSON.stringify(body)
+            } catch (error: unknown) {
+              res.writeHead(400, headers)
+              res.end(JSON.stringify({
+                ok: false,
+                error: {
+                  code: 'internal',
+                  message: `response is not serializable: ${error instanceof Error ? error.message : String(error)}`,
+                },
+              }))
+              return
+            }
+            res.writeHead(status, headers)
+            res.end(text)
           }
           if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
             send(405, { ok: false, error: { code: 'internal', message: 'this route accepts POST only' } })
@@ -295,8 +319,19 @@ export function apply(ctx: Context, config: Config): void {
             send(400, { ok: false, error: { code: 'internal', message: 'body must be { endpoint, payload? }' } })
             return
           }
-          // dispatch 自身绝不抛错（见 rpc.ts）。
-          send(200, await dispatchRpc(message.endpoint, message.payload))
+          // dispatch 自身绝不抛错（见 rpc.ts）——但"绝不"是契约不是保证，
+          // 这里兜底成可读报文，避免任何意外再次退化成空 400。
+          try {
+            send(200, await dispatchRpc(message.endpoint, message.payload))
+          } catch (error: unknown) {
+            send(500, {
+              ok: false,
+              error: {
+                code: 'internal',
+                message: `rpc route handler threw: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            })
+          }
         },
       }), 'roundtable: rpc route')
     }

@@ -56,6 +56,10 @@ export interface WireEdge {
   from: string
   to: string
   direction: string
+  /** 骨架虚线边（host 判定）—— 不要再解析 id 前缀。 */
+  implicit?: boolean
+  /** 该通道能否真的投递（host 判定；单线制下专家↔专家为 false）。 */
+  deliverable?: boolean
 }
 
 export interface WireBudget {
@@ -102,6 +106,32 @@ export interface WireMessage {
   ts: number
 }
 
+/** 逐节点用量（`roundtable/usage.get` 的按需返回；批次 B ⑤）。 */
+export interface WireUsageNode {
+  key: string
+  status: string
+  live: boolean
+  /** provider 上报的真实四桶（`TokenUsageProjection`，明细）；`null` = 该节点无会话或宿主未挂 session-projection。 */
+  provider_tokens: Record<string, number> | null
+  /** 四桶之和（**派生值**，投影里没有这个字段）；列表标题行只用它，明细仍看四桶。 */
+  provider_total: number | null
+  /** 该席 agent 的真实累计耗时（`subagentTiming` 投影）；`null` = 非描述符子代理会话或未挂投影。 */
+  agent_ms: number | null
+  /** `agent_ms` 是否来自**未结束**的回合（true 时数字还会涨，UI 须标 `~`）。 */
+  agent_active: boolean
+  /** 会议发言的 ts 跨度（**不是** agent 耗时；两个口径不可混用）。 */
+  transcript_span_ms: number | null
+  utterances: number
+}
+
+export interface WireUsage {
+  nodes: WireUsageNode[]
+  /** 本地字符估算（与 provider 值口径不同，不可混用）。 */
+  budget_estimate: { used_tokens: number; max_tokens: number }
+  projections_available: boolean
+  note: string
+}
+
 /** One knowledge-base directory entry (阅览版: name/kind/format/size only). */
 export interface WireKbEntry {
   name: string
@@ -109,6 +139,12 @@ export interface WireKbEntry {
   ext: string
   size: number
   mtimeMs: number
+  /**
+   * host 侧算好的摘要有效性：`true` = 已读入且文件未变；`false` = **读入后已变更**
+   * （UI 必须提示主持人重读）；`undefined` = 从未生成摘要（不是"已变更"）。
+   * 取代原先「用户勾选『我改过内容』」那个静默失效补丁。
+   */
+  valid?: boolean
 }
 
 /** Knowledge-base listing returned by `roundtable/kb.list`. */
@@ -238,6 +274,10 @@ export interface RoundTablePrefs {
   hiddenPanels: string[]
   /** B3：用户自建角色预设（全局；不预置内置角色）。 */
   rolePresets: WireRolePreset[]
+  /** host 的面板 id 清单（单一来源：`rpc.ts` 的 `ROUNDTABLE_PANELS`）。 */
+  panels?: string[]
+  /** B3+：缺省角色预设 id（单一缺省值；空 = 无缺省）。 */
+  defaultPresetId?: string
 }
 
 /**

@@ -15,7 +15,7 @@ import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
-import type { Meeting, MeetingNode, SkillDelivery } from './types.ts'
+import type { Meeting, MeetingMode, MeetingNode, SkillDelivery } from './types.ts'
 import { ACTIVE_NODE_STATUSES, CAPTAIN_KEY } from './types.ts'
 
 /** Runtime knobs for node spawning, resolved from plugin config. */
@@ -102,21 +102,29 @@ const NODE_ALLOWED_TOOLS: readonly string[] = [
  *  skill-delivery mode — narrow the surface to the explicit expert allowlist
  *  so the host's `skill` loader is reachable from a node.
  *
+ *  三模式语义（2026-09-19）：单线制（orchestrated / redteam）下专家互不披露，
+ *  故 `roundtable_summarize`（返回全场逐人纪要）在工具面直接 deny —— 只改提示词
+ *  而留着这个工具，等于"文案说不认识、一调全认识"的假隔离。圆桌制保留。
+ *
  *  ⚠ `ToolRuntime.restrict()` throws on names the host has not registered, and
  *  tool names are host-owned (a composition without `bash`/`str_replace_editor`
  *  is normal). The allowlist above is therefore a HOST-AGNOSTIC WISH LIST: pass
  *  `isRegistered` to drop the entries this host does not actually expose, or
  *  node spawn fails outright with "unknown global tools". */
 export function nodeToolRestriction(
+  mode: MeetingMode = 'orchestrated',
   skillDelivery: SkillDelivery = 'relay',
   isRegistered?: (name: string) => boolean,
 ): ToolRestriction {
   const known = (names: readonly string[]): string[] =>
     isRegistered === undefined ? [...names] : names.filter((name) => isRegistered(name))
+  const denied = mode === 'egalitarian'
+    ? [...NODE_DENIED_TOOLS]
+    : [...NODE_DENIED_TOOLS, 'roundtable_summarize']
   if (skillDelivery === 'direct') {
-    return { allow: known(NODE_ALLOWED_TOOLS), deny: known(NODE_DENIED_TOOLS) }
+    return { allow: known(NODE_ALLOWED_TOOLS), deny: known(denied) }
   }
-  return { deny: known(NODE_DENIED_TOOLS) }
+  return { deny: known(denied) }
 }
 
 /** Per-expert answer limits resolved from settings at spawn time. */
@@ -172,14 +180,20 @@ export function nodePersona(
   skill: NodeSkillContext = {},
 ): string {
   const rosterHint = '你 persona 里的名册是加入时刻的快照，当前成员以 roundtable_status 的 nodes[] 为准。'
+  // 三模式语义（2026-09-19 定稿）：单线制 = 专家互不披露、主持人是唯一枢纽；
+  // 圆桌制 = 名册公开、可直连、越界直转同伴。名册提示只在圆桌制出现。
   const modeRule = meeting.mode === 'egalitarian'
-    ? `- 协作模式为"多模型平等"：你可以用 roundtable_send_message 直接与任何其他节点（或主持人）交换意见，无需主持人中转。发消息前先查名册：${rosterHint}`
+    ? `- 协作模式为"多模型平等"（圆桌制）：你可以用 roundtable_send_message 直接与任何其他成员（或主持人）交换意见，无需主持人中转；本职以外的请求或发现直接转给名册里承担该职责的成员，并抄送主持人一行。发消息前先查名册：${rosterHint}`
     : meeting.mode === 'redteam'
-      ? `- 协作模式为"针锋相对评审"：你的唯一任务是对已定稿方案挑毛病（见总纲第五节）；只向主持人提交，严禁节点间直达、严禁提出替代方案。${rosterHint}`
-      : `- 协作模式为"主持人统筹"：你只向主持人汇报；主持人会转达其他节点的观点给你。${rosterHint}`
+      ? '- 协作模式为"针锋相对评审"（单线制）：你的唯一任务是对已定稿方案挑毛病（见总纲第五节）；只向主持人提交，严禁节点间直达、严禁提出替代方案。你不掌握其他席位的信息；本职以外的发现用 [越界转派] 行交给主持人。'
+      : '- 协作模式为"主持人统筹"（单线制）：你只与主持人通信，不掌握也不询问其他席位的信息。本职以外的请求或发现，不要自行处理、也不要臆断谁会处理 —— 在本轮发言里单列一行 [越界转派]：<事项> | 建议承接：<职责>，由主持人再分配。'
   const opinionRule = limits.maxOpinions !== undefined && limits.maxOpinions > 0
     ? `\n- 每轮最多提出 ${limits.maxOpinions} 条意见：宁缺毋滥，只保留最有价值、直接服务于议题的要点。`
     : ''
+  // 越界处置按模式分叉：单线制上交主持人再分配；圆桌制直转同伴并抄送主持人。
+  const scopeRule = meeting.mode === 'egalitarian'
+    ? '- 只回答与议题直接相关的内容；本职以外的一律不答，但必须直接用 roundtable_send_message 转给名册里承担该职责的成员，并抄送主持人一行，不得静默丢弃。'
+    : '- 只回答与议题直接相关的内容；本职以外的一律不答，但必须在本轮发言末尾用 [越界转派] 行把它显式交给主持人，不得静默丢弃。'
   return `${meeting.charter}
 
 你现在是会议"${meeting.name}"中的专家节点 ${node.key}${node.role !== undefined && node.role !== '' ? `，角色：${node.role}` : ''}。
@@ -193,7 +207,7 @@ export function nodePersona(
 ${modeRule}
 
 回答限制（省 token，务必遵守）：
-- 只回答与议题直接相关的内容；无关问题一律不答，直接说明"与议题无关"。
+${scopeRule}
 - 不用假设代替事实；不确定就明确说"不确定"，严禁编造。
 - 不举无关的例子；举例必须直接服务于论点。
 - 语言简洁明了，不使用华丽修辞、空话、套话；能一句话说清的不用两句话。${opinionRule}`
@@ -202,11 +216,11 @@ ${modeRule}
 /** The initial user message delivered when the node is created. */
 export function nodeWelcome(meeting: Meeting, node: MeetingNode): string {
   const intro = meeting.mode === 'egalitarian'
-    ? '这是一场"多模型平等"讨论会：你可以用 roundtable_send_message 直接与其他成员（或主持人）交换意见，无需主持人中转；不确定现在有谁时先调 roundtable_status 查名册（总纲里的名册只是你加入时的快照）。'
+    ? '这是一场"多模型平等"（圆桌制）讨论会：你可以用 roundtable_send_message 直接与其他成员（或主持人）交换意见，无需主持人中转；名册见总纲第二节，不确定当前有谁时先调 roundtable_status 查名册。'
     : meeting.mode === 'redteam'
-      ? '这是一场"针锋相对"评审会：你的使命是对已定稿方案挑毛病（只向主持人提交，严禁互相直达、严禁提替代方案，详见总纲第五节）。'
-      : '主持人会给你布置任务或转达其他节点的观点。'
-  return `你已加入圆桌会议"${meeting.name}"（会议 id ${meeting.id}）作为专家节点 ${node.key}。${intro}收到任务后执行一整轮工作并用 roundtable_speak 汇报；当前成员名册一律以 roundtable_status 的 nodes[] 为准。现在等待主持人的指令。`
+      ? '这是一场"针锋相对"（单线制）评审会：你的使命是对已定稿方案挑毛病（只向主持人提交，严禁互相直达、严禁提替代方案，详见总纲第五节）；你不掌握其他席位的信息。'
+      : '这是一场"主持人统筹"（单线制）会议：你只与主持人联系，不掌握也不询问其他席位；主持人会给你派单并转达你需要知道的信息。'
+  return `你已加入圆桌会议"${meeting.name}"（会议 id ${meeting.id}）作为专家节点 ${node.key}。${intro}收到任务后执行一整轮工作并用 roundtable_speak 汇报。现在等待主持人的指令。`
 }
 
 /**
@@ -281,7 +295,7 @@ export async function spawnNode(
       prompt: [{ type: 'text', text: nodeWelcome(meeting, node) }] as ContentBlock[],
       parent: captain,
       persona: nodePersona(meeting, node, stateDir, limits, { ...skill, delivery, skillToolAvailable }),
-      toolFilter: nodeToolRestriction(delivery, isRegistered),
+      toolFilter: nodeToolRestriction(meeting.mode, delivery, isRegistered),
       ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
       ...(config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {}),
     },

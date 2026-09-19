@@ -34,8 +34,10 @@ import {
   clearFeedbackForMeeting,
   meetingDirOf,
   readFeedback,
+  readKbDigest,
   readMeeting,
   readReview,
+  readTranscript,
   readUserActions,
   setViewpointStatus,
   stateRootOf,
@@ -43,6 +45,8 @@ import {
   writeMeeting,
 } from './state.ts'
 import { buildCharter } from './charter.ts'
+import { digestIsFresh } from './kb-digest.ts'
+import { agentTimingOfSnapshot, providerTokensOfSnapshot, providerUsageTotal } from './usage.ts'
 
 /** RPC result envelope (mirrors the apiproxy wire shape). */
 export type RpcResult<T> =
@@ -68,17 +72,21 @@ export interface RoundTablePreferences {
   readonly hiddenPanels: string[]
   /** B3：用户自建角色预设（全局偏好；不预置任何内置角色）。 */
   readonly rolePresets: RolePreset[]
+  /** B3+：缺省角色预设（**单一缺省值**，沿用宿主 `agent-presets.default` 的语义）；
+   *  空 = 无缺省。专家管理面板打开时用它预填 role/provider/model。 */
+  readonly defaultPresetId?: string
 }
 
-/** 右栏可隐藏的面板 id（客户端与服务端共用的稳定标识）。 */
+/**
+ * 右栏面板 id（客户端与服务端共用的稳定标识）。
+ *
+ * 批次 B ④ 收敛：7 → 2 —— `files`（零数据源空壳）、`tasks`（与 agents 同数组）
+ * 已在批次 A 删除；`skills` 并入 agents 脚部、`activity` 并入网关摘要作第二视图、
+ * `review` 面板删除（头部徽章 + 弹窗已是两个入口）。**剩下的每个面板都有唯一数据源**。
+ */
 export const ROUNDTABLE_PANELS: readonly string[] = [
   'agents',
-  'tasks',
   'kb',
-  'skills',
-  'activity',
-  'review',
-  'files',
 ]
 
 /** 把任意输入收敛成合法的隐藏面板清单（未知 id 丢弃，去重）。 */
@@ -135,6 +143,16 @@ export function sanitizeRolePresets(value: unknown): RolePreset[] {
     })
   }
   return out
+}
+
+/**
+ * 净化缺省预设 id（B3+）：**必须指向现存预设**，否则视为"无缺省"。
+ * 宁可丢掉死指针，也不让"缺省指向已删预设"这种状态落库（UI 会静默预填空）。
+ */
+export function sanitizeDefaultPresetId(value: unknown, presets: readonly RolePreset[]): string {
+  const raw = typeof value === 'string' ? value.trim().slice(0, ROLE_PRESET_ID_MAX) : ''
+  if (raw === '') return ''
+  return presets.some((preset) => preset.id === raw) ? raw : ''
 }
 
 /** Holder shared between the settings fiber and the RPC fiber. */
@@ -258,7 +276,9 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
       switch (endpoint) {
           case 'roundtable/prefs.get': {
             const prefs = runtime.scope?.get() ?? runtime.fallbackPrefs
-            return ok<RoundTablePreferences>({
+            // `panels` 是**派生字段**（面板 id 单源），不属于持久化偏好，
+            // 所以不塞进 RoundTablePreferences 接口，用交叉类型表达。
+            return ok<RoundTablePreferences & { panels: string[] }>({
               defaultMode: prefs.defaultMode,
               maxRounds: prefs.maxRounds,
               maxTokens: prefs.maxTokens,
@@ -269,6 +289,10 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               skillDelivery: prefs.skillDelivery === 'direct' ? 'direct' : 'relay',
               hiddenPanels: sanitizeHiddenPanels(prefs.hiddenPanels),
               rolePresets: sanitizeRolePresets(prefs.rolePresets),
+              // 面板 id 单源（批次 A ⑥）：客户端不再自带一份 id 清单，只保留
+              // id → 文案键 的映射；新增/改名面板时改这里一处即可。
+              panels: [...ROUNDTABLE_PANELS],
+              defaultPresetId: prefs.defaultPresetId ?? '',
             })
           }
           case 'roundtable/prefs.set': {
@@ -283,6 +307,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               // Settings not mounted: keep an in-memory fallback so the settings
               // page stays usable; persistence resumes on the next clean start.
               const base = runtime.fallbackPrefs
+              const nextPresets = patch.rolePresets === undefined ? (base.rolePresets ?? []) : sanitizeRolePresets(patch.rolePresets)
               const next: RoundTablePreferences = {
                 defaultMode: patch.defaultMode === 'orchestrated' || patch.defaultMode === 'egalitarian' || patch.defaultMode === 'redteam' ? patch.defaultMode : base.defaultMode,
                 maxRounds: typeof patch.maxRounds === 'number' && Number.isFinite(patch.maxRounds) && patch.maxRounds >= 1 ? Math.floor(patch.maxRounds) : base.maxRounds,
@@ -293,7 +318,9 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
                 feedbackEnabled: typeof patch.feedbackEnabled === 'boolean' ? patch.feedbackEnabled : (base.feedbackEnabled ?? true),
                 skillDelivery: patch.skillDelivery === 'direct' || patch.skillDelivery === 'relay' ? patch.skillDelivery : base.skillDelivery,
                 hiddenPanels: patch.hiddenPanels === undefined ? base.hiddenPanels : sanitizeHiddenPanels(patch.hiddenPanels),
-                rolePresets: patch.rolePresets === undefined ? (base.rolePresets ?? []) : sanitizeRolePresets(patch.rolePresets),
+                rolePresets: nextPresets,
+                // B3+：缺省预设 id 必须指向现存预设，否则视为"无缺省"
+                defaultPresetId: sanitizeDefaultPresetId(patch.defaultPresetId ?? base.defaultPresetId ?? '', nextPresets),
               }
               runtime.fallbackPrefs = next
               return ok<RoundTablePreferences>({
@@ -307,12 +334,20 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
                 skillDelivery: next.skillDelivery,
                 hiddenPanels: next.hiddenPanels,
                 rolePresets: next.rolePresets ?? [],
+                defaultPresetId: next.defaultPresetId ?? '',
               })
             }
             // 写入前先净化：坏数据不落库（schemastery 不会替我们拦）。
             const sanitized: Record<string, unknown> = { ...patch }
             if (patch.hiddenPanels !== undefined) sanitized.hiddenPanels = sanitizeHiddenPanels(patch.hiddenPanels)
             if (patch.rolePresets !== undefined) sanitized.rolePresets = sanitizeRolePresets(patch.rolePresets)
+            // B3+：缺省 id 必须指向（本次 patch 生效后的）现存预设，防死指针落库
+            if (patch.defaultPresetId !== undefined) {
+              const presetsAfterPatch = patch.rolePresets === undefined
+                ? sanitizeRolePresets(runtime.scope.get().rolePresets)
+                : sanitizeRolePresets(patch.rolePresets)
+              sanitized.defaultPresetId = sanitizeDefaultPresetId(patch.defaultPresetId, presetsAfterPatch)
+            }
             await runtime.scope.update(sanitized)
             const next = runtime.scope.get()
             return ok<RoundTablePreferences>({
@@ -326,6 +361,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               skillDelivery: next.skillDelivery === 'direct' ? 'direct' : 'relay',
               hiddenPanels: sanitizeHiddenPanels(next.hiddenPanels),
               rolePresets: sanitizeRolePresets(next.rolePresets),
+              defaultPresetId: next.defaultPresetId ?? '',
             })
           }
           case 'roundtable/edge.set': {
@@ -390,12 +426,20 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
             })
           }
           case 'roundtable/meeting.delete': {
-            const body = payload as { meetingId?: unknown } | undefined
+            const body = payload as { meetingId?: unknown; captainSessionId?: unknown } | undefined
             const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
+            const expectCaptain = typeof body?.captainSessionId === 'string' ? body.captainSessionId : ''
             if (meetingId === '') return fail('payload must be { meetingId }')
             return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
               const meeting = await readMeeting(stateRoot, meetingId)
               if (meeting === undefined) return ok({ deleted: false })
+              // ⚠ **防误删，不是鉴权**：本 RPC 路由在设计上拿不到调用者身份
+              // （`index.ts` 只把 endpoint/payload 交给 dispatch），所以
+              // "payload 带 captainSessionId" 属自证、可伪造 —— 它只能挡住
+              // "会话与会议对不上"的误操作。真正的身份校验缺口在宿主 webServer。
+              if (expectCaptain !== '' && expectCaptain !== meeting.captainSessionId) {
+                return fail('captainSessionId does not own this meeting — refusing to delete (anti-accident guard, not authentication)')
+              }
               // Best-effort: interrupt the meeting's expert subagents first so
               // no orphan keeps running after the meeting is gone.
               const agents = (ctx as unknown as { agents?: { interrupt?: (id: string) => unknown } }).agents
@@ -406,6 +450,83 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               }
               await rm(meetingDirOf(stateRoot, meetingId), { recursive: true, force: true })
               return ok({ deleted: true })
+            })
+          }
+          case 'roundtable/usage.get': {
+            // 逐节点用量（批次 B ⑤）：**按需端点，绝不进 1Hz 快照** ——
+            // `sessionProjections.snapshot()` 会物化投影（惰性折叠整条日志），
+            // 每秒对每个专家跑一次等于持续重折叠。
+            // 口径纪律：`provider_tokens` 是 provider 上报的**真实值**；
+            // `budget_estimate` 是本地字符估算（budget.ts 的 CJK×0.6 + latin×0.3），
+            // 两者不可混用（拿估算当账单就是错的）。
+            const body = payload as { meetingId?: unknown } | undefined
+            const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
+            if (meetingId === '') return fail('payload must be { meetingId }')
+            return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
+              const meeting = await readMeeting(stateRoot, meetingId)
+              if (meeting === undefined) return fail(`meeting "${meetingId}" not found`)
+              const utterances = await readTranscript(stateRoot, meetingId)
+              const agents = (ctx as unknown as { agents?: { get?: (id: string) => { session?: unknown } | undefined } }).agents
+              // ⚠ 服务必须走 `ctx.get`，不能属性读：`ctx.sessionProjections` 在未
+              // 于插件 `inject` 声明该服务时会抛「cannot get property
+              // "sessionProjections" without inject」，异常穿过 dispatch 的兜底
+              // （它在 try 外）→ 宿主回**空 400**。实测这就是本端点此前对任何真实
+              // 会议都不可用的真因。`ctx.get` 是"可用则取、不可用则 undefined"的读法。
+              const projections = ctx.get('sessionProjections' as never) as {
+                snapshot?: (session: unknown, keys?: readonly string[]) => unknown
+              } | undefined
+              const nodes = meeting.nodes
+                .filter((node) => node.status !== 'removed')
+                .map((node) => {
+                  const live = node.id === '' ? undefined : agents?.get?.(node.id)
+                  const session = live?.session
+                  let providerTokens: Record<string, number> | null = null
+                  let agentMs: number | null = null
+                  let agentActive = false
+                  if (session !== undefined && typeof projections?.snapshot === 'function') {
+                    try {
+                      // 一次快照取三把钥匙（`tokenUsage` = provider 真实四桶，
+                      // `subagentTiming` = 该席 agent 真实耗时，`subagent` = 身份门：
+                      // 没有描述符的会话其 timing 恒为 `{settledMs:0}`，必须靠身份键
+                      // 才能区分"没数据"与"真的 0"）——读同一个投影刀口，不为第二个
+                      // 指标再物化一遍。取数与挑字段都在 usage.ts（夹具可测）。
+                      const snap = projections.snapshot(session, ['tokenUsage', 'subagentTiming', 'subagent'])
+                      providerTokens = providerTokensOfSnapshot(snap) ?? null
+                      const timing = agentTimingOfSnapshot(snap)
+                      if (timing !== undefined) {
+                        agentMs = timing.agent_ms
+                        agentActive = timing.agent_active
+                      }
+                    } catch {
+                      // 单个节点取数失败只降级该节点（= 不可用），不拖垮整个端点。
+                      providerTokens = null
+                    }
+                  }
+                  const mine = utterances.filter((utterance) => utterance.nodeKey === node.key)
+                  const first = mine[0]?.ts
+                  const last = mine[mine.length - 1]?.ts
+                  return {
+                    key: node.key,
+                    status: node.status,
+                    live: live !== undefined,
+                    provider_tokens: providerTokens,
+                    // 派生合计（投影无此字段）：列表只显示它，明细仍以四桶为准。
+                    provider_total: providerTokens === null ? null : providerUsageTotal(providerTokens),
+                    // 该席 agent 的真实耗时（`subagentTiming`），不是会议发言跨度；
+                    // `agent_active` = 来自未结束的回合（数字还会涨）。
+                    agent_ms: agentMs,
+                    agent_active: agentActive,
+                    // 会议发言的 ts 跨度：**不是** agent 耗时，但能看出该席的发言分布。
+                    transcript_span_ms: first !== undefined && last !== undefined ? Math.max(0, last - first) : null,
+                    utterances: mine.length,
+                  }
+                })
+              return ok({
+                nodes,
+                budget_estimate: { used_tokens: meeting.budget.usedTokens, max_tokens: meeting.budget.maxTokens },
+                projections_available: typeof projections?.snapshot === 'function',
+                note: 'provider_tokens = provider 上报真实值（四桶）；agent_ms = 该席 agent 累计耗时（~ 表示回合进行中）；budget_estimate = 本地字符估算。三者口径不同，不可混用。',
+              })
             })
           }
           case 'roundtable/user-actions.append': {
@@ -516,7 +637,22 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               const configured = meeting.kbPath ?? ''
               if (configured === '') return ok({ path: '', configured: false, error: '', files: [] })
               const listing = await listKbDirectory(configured)
-              return ok({ path: configured, configured: true, error: listing.error, files: listing.files })
+              // KB `valid` 通道（批次 A ⑤）：把 host 侧已算好的摘要有效性一并回传，
+              // 让 UI 用「文件系统事实」判定变更，取代「用户勾选」这个静默失效补丁
+              // （勾选框漏勾 = 变更永远不通知主持人，且无任何失败信号）。
+              const cache = await readKbDigest(stateRoot, meetingId)
+              const byPath = new Map(cache.entries.map((entry) => [entry.path, entry]))
+              const files = listing.files.map((file) => {
+                const entry = byPath.get(join(configured, file.name))
+                return {
+                  ...file,
+                  // undefined = 该文件从未生成摘要（UI 显示"未读"，不是"已变更"）
+                  valid: entry === undefined
+                    ? undefined
+                    : digestIsFresh(entry, { size: file.size, mtimeMs: file.mtimeMs }),
+                }
+              })
+              return ok({ path: configured, configured: true, error: listing.error, files })
             })
           }
           case 'roundtable/review.endorse': {

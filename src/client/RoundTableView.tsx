@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireNode, WireProviderOption, WireRolePreset } from './wire.ts'
+import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
 import { fetchMeetings } from './wire.ts'
 import { BRAND_LOGOS } from './brand-logos.generated.ts'
 import styles from './RoundTableView.module.css'
@@ -162,7 +162,9 @@ function edgeCurveGeometry(
   const from = positions.get(edge.from)
   const to = positions.get(edge.to)
   if (from === undefined || to === undefined) return null
-  const synthetic = edge.id.startsWith('synthetic:')
+  // host 已在快照里判定 implicit / deliverable，客户端不再解析 id 前缀
+  // （旧写法 `id.startsWith('synthetic:')` 是"同一事实两个判定者"）。
+  const synthetic = edge.implicit === true
   const dx = to.x - from.x
   const dy = to.y - from.y
   const len = Math.max(1, Math.hypot(dx, dy))
@@ -256,17 +258,22 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // meetings stay visible across session switches, updates and restarts.
   const [meetings, setMeetings] = useState<WireMeeting[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [expandedTask, setExpandedTask] = useState<string | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
   const [providers, setProviders] = useState<WireProviderOption[]>([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [form, setForm] = useState<{ name: string; role: string; provider: string; model: string }>({ name: '', role: '', provider: '', model: '' })
   // B3：设置页维护的角色预设（只读镜像，用于"选中即填充"）。
   const [presetList, setPresetList] = useState<WireRolePreset[]>([])
+  /** B3+：当前下拉里选中的预设 id（修 `value=""` 导致"选完回弹、看不出选了什么"）。 */
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  /** B3+：host 下发的缺省预设 id（打开面板且表单为空时用它预填）。 */
+  const [defaultPresetId, setDefaultPresetId] = useState('')
+  /** 批次 B ⑤：逐节点用量（**按需**拉取，绝不进 1s 轮询）。 */
+  const [usage, setUsage] = useState<WireUsage | null>(null)
+  const [usageLoading, setUsageLoading] = useState(false)
   const [kbOpen, setKbOpen] = useState(false)
   const [kbPathInput, setKbPathInput] = useState('')
   const [kbListing, setKbListing] = useState<WireKbListing | null>(null)
-  const [kbContentChanged, setKbContentChanged] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
   const reviewAutoShown = useRef<string | null>(null)
   // C2 驳回必填理由：当前正在填写驳回理由的观点 id（null = 无进行中的驳回输入）。
@@ -332,13 +339,15 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // meeting in the workspace (on) or only meetings this conversation started.
   // `hiddenPanels` (R3) additionally picks which right-column panels show.
   useEffect(() => {
-    void rpc<{ showAllMeetings?: boolean; feedbackEnabled?: boolean; hiddenPanels?: string[]; rolePresets?: WireRolePreset[] }>('roundtable/prefs.get', {})
+    void rpc<{ showAllMeetings?: boolean; feedbackEnabled?: boolean; hiddenPanels?: string[]; rolePresets?: WireRolePreset[]; defaultPresetId?: string }>('roundtable/prefs.get', {})
       .then((result) => {
         if (result.ok) {
           if (typeof result.value?.showAllMeetings === 'boolean') setShowAll(result.value.showAllMeetings)
           if (typeof result.value?.feedbackEnabled === 'boolean') setFeedbackEnabled(result.value.feedbackEnabled)
           if (Array.isArray(result.value?.hiddenPanels)) setHiddenPanels(result.value.hiddenPanels)
           if (Array.isArray(result.value?.rolePresets)) setPresetList(result.value.rolePresets)
+          // B3+：缺省预设（单一缺省值），用于打开专家管理面板时预填
+          if (typeof result.value?.defaultPresetId === 'string') setDefaultPresetId(result.value.defaultPresetId)
         }
       })
       .catch(() => undefined)
@@ -545,7 +554,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     if (meeting === undefined) return []
     const dots: { id: string; cx: number; cy: number }[] = []
     for (const edge of meeting.edges) {
-      if (edge.id.startsWith('synthetic:')) continue
+      if (edge.implicit === true) continue
       const geo = edgeCurveGeometry(edge, meeting, positions)
       if (geo === null) continue
       dots.push({ id: edge.id, cx: geo.mx, cy: geo.my })
@@ -593,7 +602,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       void rpc<unknown>('roundtable/edge.add', { meetingId, from, to, direction: 'forward' })
         .then((result) => {
           if (result.ok) {
-            setToast({ kind: 'ok', text: `已连接 ${from} → ${to}` })
+            setToast({ kind: 'ok', text: translate('edgeConnected').replace('{from}', from).replace('{to}', to) })
             void refresh()
           } else {
             setToast({ kind: 'err', text: result.error?.message ?? '连线失败' })
@@ -624,7 +633,12 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
         .catch(() => undefined)
     } else {
       void rpc<unknown>('roundtable/edge.set', { meetingId: menu.meetingId, edgeId: menu.edge.id, direction: action })
-        .then(() => refresh())
+        .then(() => {
+          // 显式确认（批次 B ⑦）：原先只重画线型、没有任何文字反馈，
+          // 用户点完"设为双向"不确定是否生效。refresh() 本来就有（:629/:633）。
+          setToast({ kind: 'ok', text: translate(action === 'bidirectional' ? 'edgeSetBidirectional' : 'edgeSetForward') })
+          refresh()
+        })
         .catch(() => undefined)
     }
     setMenu(null)
@@ -650,7 +664,6 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const openKb = (): void => {
     setKbOpen(true)
     setKbPathInput(meeting?.kbPath ?? '')
-    setKbContentChanged(false)
     setKbListing(null)
     if (meeting !== undefined && meeting.kbPath !== '') loadKbList(meeting.kbPath)
   }
@@ -679,16 +692,13 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
         }
         const saved = result.value.path
         const actions: { kind: 'kb-path'; text: string }[] = [{ kind: 'kb-path', text: `修改了知识库路径为 ${saved}` }]
-        if (kbContentChanged) actions.push({ kind: 'kb-path', text: '已修改知识库部分内容，请重新阅览以更新认知' })
-        const queue = actions.map((action) => rpc<unknown>('roundtable/user-actions.append', {
+        void Promise.allSettled(actions.map((action) => rpc<unknown>('roundtable/user-actions.append', {
           meetingId: meeting.id,
           kind: action.kind,
           text: action.text,
-        }))
-        void Promise.allSettled(queue).then(() => {
+        }))).then(() => {
           setToast({ kind: 'ok', text: translate('kbSaved') })
           setKbPathInput(saved)
-          setKbContentChanged(false)
           loadKbList(saved)
           void refresh()
         })
@@ -716,9 +726,31 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   }, [meeting])
   const pendingActionCount = (meeting?.pendingActions ?? []).length
 
+  // 生效信号（批次 A ⑩）：待办从 >0 归零 = 主持人已执行 → 一次性提示。
+  // 复用快照 1s 轮询推导出的 pendingActionCount，不需要任何新通道。
+  const prevPendingCount = useRef(0)
+  useEffect(() => {
+    const prev = prevPendingCount.current
+    prevPendingCount.current = pendingActionCount
+    if (prev > 0 && pendingActionCount === 0) {
+      setToast({ kind: 'ok', text: translate('manageActionsApplied') })
+    }
+  }, [pendingActionCount, translate])
+
   const openManage = (): void => {
     setManageOpen(true)
     setModelsLoaded(false)
+    // B3+：表单为空时用**缺省预设**预填（单一缺省值语义）；没有缺省就保持空表单。
+    const fallback = presetList.find((preset) => preset.id === defaultPresetId)
+    if (fallback !== undefined) {
+      setSelectedPresetId(fallback.id)
+      setForm((previous) => ({
+        ...previous,
+        role: fallback.role,
+        provider: fallback.provider ?? '',
+        model: fallback.model ?? '',
+      }))
+    }
     void rpc<{ providers: WireProviderOption[] }>('roundtable/models.list', {})
       .then((result) => {
         if (result.ok && Array.isArray(result.value.providers)) setProviders(result.value.providers)
@@ -727,9 +759,29 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       .catch(() => setModelsLoaded(true))
   }
 
-  const closeManage = (): void => {
-    setManageOpen(false)
+  /**
+   * 批次 B ⑤：**按需**拉逐节点用量（provider 上报真实值 + transcript 口径耗时）。
+   * 刻意不进 1s 快照：host 侧 `sessionProjections.snapshot()` 会物化投影，
+   * 每秒对每个专家折叠一次日志是不可接受的成本。
+   */
+  const loadUsage = (): void => {
+    if (meeting === undefined) return
+    setUsageLoading(true)
+    void rpc<WireUsage>('roundtable/usage.get', { meetingId: meeting.id })
+      .then((result) => {
+        setUsageLoading(false)
+        if (result.ok) setUsage(result.value)
+        else setToast({ kind: 'err', text: result.error?.message ?? translate('usageFailed') })
+      })
+      .catch(() => {
+        setUsageLoading(false)
+        setToast({ kind: 'err', text: translate('usageFailed') })
+      })
+  }
+
+  const closeManage = (): void => {    setManageOpen(false)
     setForm({ name: '', role: '', provider: '', model: '' })
+    setSelectedPresetId('')
   }
 
   // Queue an expert removal: only the user-actions file is written; the
@@ -788,6 +840,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
         if (result.ok) {
           setToast({ kind: 'ok', text: translate('manageAddedSoon').replace('{name}', key) })
           setForm({ name: '', role: '', provider: '', model: '' })
+          setSelectedPresetId('')
           void refresh()
         } else {
           setToast({ kind: 'err', text: result.error?.message ?? translate('manageQueueFailed') })
@@ -802,6 +855,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
 
   /** B3：选中预设 → 填充 role/provider/model；专家 key 仍由用户自己填。 */
   const applyPreset = (id: string): void => {
+    setSelectedPresetId(id)
     const preset = presetList.find((candidate) => candidate.id === id)
     if (preset === undefined) return
     setForm((previous) => ({
@@ -836,7 +890,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     const from = positions.get(edge.from)
     const to = positions.get(edge.to)
     if (from === undefined || to === undefined) return null
-    const synthetic = edge.id.startsWith('synthetic:')
+    // host 已在快照里判定 implicit / deliverable，客户端不再解析 id 前缀
+  // （旧写法 `id.startsWith('synthetic:')` 是"同一事实两个判定者"）。
+  const synthetic = edge.implicit === true
 
     // Bundle edges by shared origin so a hub's outgoing wires fan out like
     // ribs from the same rim point instead of stabbing every direction; this
@@ -966,7 +1022,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             className={`${styles.port} ${styles[`port${dir.toUpperCase()}`]}`}
             role="button"
             tabIndex={0}
-            aria-label="connect"
+            aria-label={translate('portConnect')}
             data-port-dir={dir}
             onMouseDown={(event) => {
               event.preventDefault()
@@ -1028,7 +1084,11 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             <div className={styles.budgetBar}>
               <div className={styles.budgetFillTokens} style={{ width: `${tokensPct}%` }} />
             </div>
-            <span className={styles.budgetValue}>{meeting.budget.usedTokens}/{meeting.budget.maxTokens}</span>
+            {/* 口径标注（批次 A ⑫）：只挂 title，不改共用标签（`tokensBudget`
+                同时渲染在设置页，改它会把设置页一起改掉）。 */}
+            <span className={styles.budgetValue} title={translate('tokensBudgetHint')}>
+              {meeting.budget.usedTokens}/{meeting.budget.maxTokens}
+            </span>
           </div>
           {meeting.pendingDecisions.length > 0 ? (
             <div className={styles.decisionBanner}>
@@ -1039,6 +1099,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                   {decision.options.length > 0 ? `（${translate('pendingDecisionOptions')}：${decision.options.join(' / ')}）` : ''}
                 </span>
               ))}
+              {/* 指路句（批次 A ⑨）：**刻意不加按钮** —— 回答决策的 RPC 不存在，
+                  加了就是第二个"点了没反应"的假入口。 */}
+              <span className={styles.decisionHint}>{translate('pendingDecisionHint')}</span>
             </div>
           ) : null}
         </div>
@@ -1072,7 +1135,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               type="button"
               className={[styles.edgeRemove, hoverEdgeId === dot.id ? styles.edgeRemoveActive : ''].filter(Boolean).join(' ')}
               style={{ left: dot.cx, top: dot.cy }}
-              aria-label="delete edge"
+              aria-label={translate('edgeRemove')}
               onMouseEnter={() => setHoverEdge(dot.id)}
               onMouseLeave={() => clearHoverEdge(dot.id)}
               onClick={() => {
@@ -1090,6 +1153,12 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             if (from === undefined || to === undefined) return null
             return <div key={message.id} className={styles.msgPulse} style={flowStyle(from, to)} />
           })}
+          {/* 常驻图例（批次 A ⑧）：复用时层覆盖，不占侧栏、不加面板。
+              单线制下"连线 = 通信权限"是错的直觉，必须常驻说清。 */}
+          <div className={styles.legend}>
+            <span className={styles.legendTitle}>{translate('edgeLegend')}</span>
+            <span className={styles.legendText}>{translate('edgeScopeHint')}</span>
+          </div>
           {toast !== null ? (
             <div className={styles.toast}>
               <span className={toast.kind === 'ok' ? styles.toastOk : styles.toastErr}>{toast.text}</span>
@@ -1099,13 +1168,32 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
         <details className={styles.digest}>
           <summary>{translate('gatewayDigest')}</summary>
           <pre className={styles.digestBody}>{meeting.digest || translate('noDigest')}</pre>
+          {/* 发言时间轴（批次 B ③）：原 activity 面板的**唯一独占信息**是时间戳
+              （digest 由 aggregator 产出、不含时间），故并进摘要区作第二视图，
+              而不新增面板、也不丢弃时间信息。 */}
+          <div className={styles.digestSectionTitle}>{translate('activity')}</div>
+          {(meeting.recent ?? []).length === 0 ? (
+            <div className={styles.panelEmpty}>{translate('noActivity')}</div>
+          ) : (meeting.recent ?? []).map((utterance) => (
+            <div className={styles.logRow} key={utterance.id}>
+              <div className={styles.logHead}>
+                <span className={styles.logFrom}>{utterance.from} → {utterance.to}</span>
+                <span className={styles.logTime}>
+                  {new Date(utterance.ts).toLocaleTimeString('zh-CN', { hour12: false })}
+                </span>
+              </div>
+              <div className={styles.logText}>{utterance.text}</div>
+            </div>
+          ))}
         </details>
       </div>
 
       <aside className={styles.sidebar}>
         <div className={styles.sidebarActions}>
           {pendingActionCount > 0 ? (
-            <span className={styles.pendingBadge}>{translate('pendingBadge').replace('{n}', String(pendingActionCount))}</span>
+            <span className={styles.pendingBadge} title={translate('manageEffectiveHint')}>
+              {translate('pendingBadge').replace('{n}', String(pendingActionCount))}
+            </span>
           ) : null}
           <button
             type="button"
@@ -1113,9 +1201,18 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             aria-label={translate('meetingDelete')}
             title={translate('meetingDelete')}
             onClick={() => {
-              const confirmed = window.confirm(translate('meetingDeleteConfirm').replace('{name}', meeting.name))
+              // 防误删（批次 A ⑪）：confirm 里说清"会删什么 + 想留档先导出"。
+              // ⚠ 这不是鉴权：RPC 通道拿不到调用者身份，"带 sessionId" 属自证可伪造。
+              const confirmed = window.confirm(
+                `${translate('meetingDeleteConfirm').replace('{name}', meeting.name)}\n\n${translate('meetingDeleteDetail')}`,
+              )
               if (!confirmed) return
-              void rpc<unknown>('roundtable/meeting.delete', { meetingId: meeting.id })
+              void rpc<unknown>('roundtable/meeting.delete', {
+                meetingId: meeting.id,
+                // 防误删护栏：带上本会议的 captainSessionId，会话对不上则拒绝
+                // （**不是鉴权** —— RPC 路由拿不到调用者身份，payload 可伪造）。
+                captainSessionId: meeting.captainSessionId,
+              })
                 .then(() => { setSelectedId(undefined); void refresh() })
                 .catch(() => undefined)
             }}
@@ -1129,6 +1226,15 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             <button
               type="button"
               className={styles.panelAdd}
+              aria-label={translate('usageButton')}
+              title={translate('usageButton')}
+              onClick={loadUsage}
+            >
+              {usageLoading ? '…' : '⏱'}
+            </button>
+            <button
+              type="button"
+              className={styles.panelAdd}
               aria-label={translate('editAgents')}
               title={translate('editAgents')}
               onClick={openManage}
@@ -1137,6 +1243,37 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             </button>
           </div>
           <div className={styles.panelBody}>
+            {/* 用量条（按需显示；口径在 usageNote 里写明，防拿估算当账单） */}
+            {usage === null ? null : (
+              <div className={styles.usageStrip}>
+                <div className={styles.usageNote}>{translate('usageNote')}</div>
+                {usage.nodes.map((entry) => (
+                  <div className={styles.usageRow} key={entry.key}>
+                    <span className={styles.usageKey}>{entry.key}</span>
+                    <span
+                      className={styles.usageValue}
+                      // 明细用 provider 真实字段名，不翻译：这是**数据字段**不是界面文案，
+                      // 翻成中文反而断掉了与投影字段的可追溯性。
+                      title={entry.provider_tokens === null
+                        ? undefined
+                        : Object.entries(entry.provider_tokens).map(([field, value]) => `${field}: ${value}`).join('\n')}
+                    >
+                      {entry.provider_total === null
+                        ? translate('usageUnavailable')
+                        : `${String(entry.provider_total)} tok`}
+                      {/* 耗时优先用该席 agent 的真实累计（`subagentTiming`）；
+                          `~` = 回合进行中（数字还会涨）。没有 agent 投影时才退回
+                          会议发言跨度，并显式标 (transcript) 防两个口径被当成一回事。 */}
+                      {entry.agent_ms === null
+                        ? (entry.transcript_span_ms === null
+                            ? ''
+                            : ` · ${Math.round(entry.transcript_span_ms / 1000)}s (transcript)`)
+                        : ` · ${entry.agent_active ? '~' : ''}${(entry.agent_ms / 1000).toFixed(1)}s`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             {[...meeting.nodes]
               .sort((a, b) => nodeListRank(a) - nodeListRank(b))
               .map((node) => {
@@ -1160,41 +1297,21 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                 </div>
               )
             })}
-          </div>
-        </section>
-
-        <section className={panelClass('tasks')} data-rt-panel="tasks">
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelTitle}>{translate('tasks')}</span>
-            <button
-              type="button"
-              className={styles.panelAdd}
-              aria-label={translate('editAgents')}
-              title={translate('editAgents')}
-              onClick={openManage}
-            >
-              ＋
-            </button>
-          </div>
-          <div className={styles.panelBody}>
-            {meeting.nodes.map((node) => {
-              const expanded = expandedTask === node.key
-              return (
-                <div className={styles.taskRow} key={node.key}>
-                  <button
-                    type="button"
-                    className={styles.taskToggle}
-                    onClick={() => setExpandedTask(expanded ? null : node.key)}
-                  >
-                    <span className={styles.taskChevron}>{expanded ? '▾' : '▸'}</span>
-                    <span className={styles.taskKey}>{node.key}</span>
-                  </button>
-                  <div className={expanded ? styles.taskRoleExpanded : styles.taskRole}>
-                    {node.role || '—'}
-                  </div>
-                </div>
-              )
-            })}
+            {/* 技能并入 agents 脚部一行（批次 B ④）：清单属会议、传递方式属全局偏好，
+                原先独占一个面板且无任何操作能力。 */}
+            <div className={styles.agentSkillFooter}>
+              <span className={styles.agentSkillLabel}>
+                {translate('skillsTitle')}：
+                {(meeting.skills ?? []).length === 0
+                  ? translate('skillsEmpty')
+                  : (meeting.skills ?? []).join('、')}
+              </span>
+              <span className={styles.skillDeliveryLabel}>
+                {meeting.skillDelivery === 'direct'
+                  ? translate('skillsDeliveryDirect')
+                  : translate('skillsDeliveryRelay')}
+              </span>
+            </div>
           </div>
         </section>
 
@@ -1220,88 +1337,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           </div>
         </section>
 
-        <section className={panelClass('skills')} data-rt-panel="skills">
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelTitle}>{translate('skillsTitle')}</span>
-            <span className={styles.skillDeliveryLabel}>
-              {meeting.skillDelivery === 'direct'
-                ? translate('skillsDeliveryDirect')
-                : translate('skillsDeliveryRelay')}
-            </span>
-          </div>
-          <div className={styles.panelBody}>
-            {(meeting.skills ?? []).length === 0 ? (
-              <div className={styles.panelEmpty}>{translate('skillsEmpty')}</div>
-            ) : (meeting.skills ?? []).map((skillName) => (
-              <div className={styles.kbPathRow} key={skillName} title={skillName}>{skillName}</div>
-            ))}
-          </div>
-        </section>
 
-        <section className={panelClass('activity')} data-rt-panel="activity">
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelTitle}>{translate('activity')}</span>
-          </div>
-          <div className={styles.panelBody}>
-            {(meeting.recent ?? []).length === 0 ? (
-              <div className={styles.panelEmpty}>{translate('noActivity')}</div>
-            ) : (meeting.recent ?? []).map((utterance) => (
-              <div className={styles.logRow} key={utterance.id}>
-                <div className={styles.logHead}>
-                  <span className={styles.logFrom}>{utterance.from} → {utterance.to}</span>
-                  <span className={styles.logTime}>
-                    {new Date(utterance.ts).toLocaleTimeString('zh-CN', { hour12: false })}
-                  </span>
-                </div>
-                <div className={styles.logText}>{utterance.text}</div>
-              </div>
-            ))}
-          </div>
-        </section>
 
-        <section className={panelClass('review')} data-rt-panel="review">
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelTitle}>{translate('reviewPanelTitle')}</span>
-            {meeting.review !== null ? (
-              <button
-                type="button"
-                className={styles.panelAdd}
-                aria-label={translate('reviewOpen')}
-                title={translate('reviewOpen')}
-                onClick={() => setReviewOpen(true)}
-              >
-                ›
-              </button>
-            ) : null}
-          </div>
-          <div className={styles.panelBody}>
-            {meeting.review === null ? (
-              <div className={styles.panelEmpty}>{translate('reviewPanelEmpty')}</div>
-            ) : (
-              <button type="button" className={styles.reviewCard} onClick={() => setReviewOpen(true)}>
-                <div className={styles.reviewCardTitle}>{meeting.review.question}</div>
-                <div className={styles.reviewCardMeta}>
-                  {meeting.review.status === 'ready'
-                    ? translate('reviewStatusReady')
-                    : meeting.review.status === 'done'
-                      ? translate('reviewStatusDone')
-                      : translate('reviewStatusReviewing')}
-                  {' · '}{meeting.review.viewpoints.length} {translate('reviewViewpoints')}
-                  {' · '}{meeting.review.viewpoints.filter((viewpoint) => viewpoint.endorsed).length} {translate('reviewEndorsedCount')}
-                </div>
-              </button>
-            )}
-          </div>
-        </section>
 
-        <section className={panelClass('files')} data-rt-panel="files">
-          <div className={styles.panelTitleRow}>
-            <span className={styles.panelTitle}>{translate('files')}</span>
-          </div>
-          <div className={styles.panelBody}>
-            <div className={styles.panelEmpty}>{translate('filesEmpty')}</div>
-          </div>
-        </section>
+
       </aside>
 
       {kbOpen ? (
@@ -1326,15 +1365,6 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                   onChange={(event) => setKbPathInput(event.target.value)}
                 />
               </div>
-              <label className={styles.kbChangedRow}>
-                <input
-                  type="checkbox"
-                  className={styles.switchInput}
-                  checked={kbContentChanged}
-                  onChange={(event) => setKbContentChanged(event.target.checked)}
-                />
-                <span>{translate('kbContentChanged')}</span>
-              </label>
               <button type="button" className={styles.manageAddBtn} onClick={saveKbPath}>
                 {translate('kbSave')}
               </button>
@@ -1359,6 +1389,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                       <span className={styles.kbMeta}>
                         {entry.ext !== '' ? `.${entry.ext}` : ''}
                         {entry.size > 0 ? ` · ${formatKbSize(entry.size)}` : ''}
+                        {/* host 判定的摘要有效性：false = 读过但文件已变 → 提示重读 */}
+                        {entry.valid === false ? ` · ${translate('kbChanged')}` : ''}
                       </span>
                     ) : null}
                   </div>
@@ -1445,7 +1477,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                 ) : (
                   <select
                     className={styles.manageSelect}
-                    value=""
+                    value={selectedPresetId}
                     onChange={(event) => applyPreset(event.target.value)}
                   >
                     <option value="">{translate('managePresetPlaceholder')}</option>
@@ -1696,6 +1728,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           <div className={styles.contextMenuTitle}>
             {menu.edge.from} → {menu.edge.to}
           </div>
+          {/* 菜单首行即说明（批次 A ⑧）：右键是用户主动询问"这条线是什么"的时刻 */}
+          <div className={styles.contextMenuNote}>{translate('edgeScopeHint')}</div>
           <button type="button" className={styles.contextMenuItem} onClick={() => handleEdgeAction('forward')}>
             {translate('edgeSetForward')}
           </button>

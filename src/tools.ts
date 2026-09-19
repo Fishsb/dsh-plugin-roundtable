@@ -52,6 +52,8 @@ import {
   type MeetingDraft,
 } from './plan.ts'
 import { listInvocableSkills, type SkillSummaryLike } from './skills.ts'
+import { recipientPolicy, statusVisibility } from './visibility.ts'
+import { analyzeSilence, silenceMarkFor, silenceSummaryLine } from './silence.ts'
 
 /** Resolved plugin config consumed by the tools. */
 export interface ToolsConfig {
@@ -985,7 +987,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_send_message',
-    description: 'Send a direct message to another participant: wakes the recipient as its next turn. In "orchestrated" mode only the captain may message nodes (nodes report to the captain); in "egalitarian" mode any participant may message any other — this is how experts debate peer-to-peer. to="all" broadcasts one message to every live participant (R-C roster fan-out: use it right after add_node/remove_node so running nodes — whose persona roster is only a spawn-time snapshot — learn the current roster; it costs one transcript line per recipient).',
+    description: 'Send a direct message to another participant: wakes the recipient as its next turn. In "orchestrated"/"redteam" (single-line) modes only the captain may message nodes, ONE NODE AT A TIME: experts do not know about each other, so never broadcast and never name another expert in the text you relay. In "egalitarian" mode any participant may message any other — this is how experts debate peer-to-peer — and to="all" broadcasts one message to every live participant (use it right after add_node/remove_node so running nodes learn the current roster; it costs one transcript line per recipient).',
     parameters: {
       to: { type: 'string', required: true, description: 'Recipient: "captain", a node key, or "all" (broadcast to every live participant).' },
       content: { type: 'string', required: true, description: 'The message text.' },
@@ -1012,8 +1014,14 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         const { meeting, identity } = await requireFreshParticipant(stateRoot, located.id, caller.id)
         ensureActive(meeting)
         const speaker = identity.kind === 'captain' ? CAPTAIN_KEY : identity.name
-        if (meeting.mode !== 'egalitarian' && identity.kind === 'node' && to !== CAPTAIN_KEY) {
+        // 三模式语义（2026-09-19）：收件人策略集中在 visibility.ts ——
+        // 单线制下节点只能发主持人；广播 to="all" 仅圆桌制允许。
+        const policy = recipientPolicy(meeting.mode, identity.kind === 'captain' ? 'captain' : 'node', to)
+        if (policy === 'captain-only') {
           throw new Error('orchestrated/redteam mode: nodes report to the captain only — the captain relays between nodes')
+        }
+        if (policy === 'broadcast-egalitarian-only') {
+          throw new Error('broadcast (to="all") is egalitarian-only — in orchestrated/redteam, message one node at a time (experts do not know about each other)')
         }
         if (to === 'all') {
           const recipients = broadcastRecipients(meeting, speaker)
@@ -1086,8 +1094,17 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const stateRoot = stateRootOf(workspaceOf(caller), config.stateDir)
       const located = await locateParticipantMeeting(stateRoot, caller.id)
       const utterances = await readTranscript(stateRoot, located.id)
+      // 静默标记（批次 B ②）：摘要尾部必须写清"谁派了没回"，
+      // 否则主持人读摘要时看不出整席缺失（网关摘要原本只含已发言者）。
+      const meeting = await readMeeting(stateRoot, located.id)
+      const silenceLine = meeting === undefined
+        ? ''
+        : silenceSummaryLine(analyzeSilence(
+          { status: meeting.status, round: meeting.round, nodes: meeting.nodes },
+          utterances,
+        ))
       return {
-        digest: aggregateUtterances(utterances),
+        digest: silenceLine === '' ? aggregateUtterances(utterances) : `${aggregateUtterances(utterances)}\n\n[静默判据] ${silenceLine}`,
         speech_count: utterances.filter((utterance) => utterance.kind === 'speech' || utterance.kind === 'proxy-thinking').length,
       }
     },
@@ -1203,6 +1220,17 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const activity = nodeActivity(ctx, meeting.nodes)
       const utterances = await readTranscript(stateRoot, meeting.id)
       const userActions = await readUserActions(stateRoot, meeting.id)
+      // 三模式语义（2026-09-19）：单线制下专家**不掌握其他席位** —— 快照必须
+      // 与提示词一致，否则"文案说不认识、工具一查全认识"就是假隔离。
+      const viewerKey = identity.kind === 'captain' ? CAPTAIN_KEY : identity.name
+      const vis = statusVisibility(meeting.mode, identity.kind === 'captain' ? 'captain' : 'node', viewerKey)
+      // 静默席判据（批次 A ②）：让"专家没 speak 就结束回合"这条缺陷**在运行态可见**，
+      // 而不是只活在测试里。三条护栏与硬阈值见 src/silence.ts。
+      // （内联成字面量是因为工具输出要求 JSON 兼容类型，interface 没有索引签名。）
+      const silence = analyzeSilence(
+        { status: meeting.status, round: meeting.round, nodes: meeting.nodes },
+        utterances.map((utterance) => ({ nodeKey: utterance.nodeKey, round: utterance.round, to: utterance.to })),
+      )
       return {
         meeting_id: meeting.id,
         meeting_name: meeting.name,
@@ -1229,16 +1257,20 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             reasoning_effort: node.reasoningEffort ?? '',
             status: node.status,
             activity: activity.get(node.key) ?? 'unspawned',
-          })),
+          }))
+          .filter((row) => vis.node(row)),
         edges: meeting.edges.map((edge) => ({
           id: edge.id,
           from: edge.from,
           to: edge.to,
           direction: edge.direction,
-        })),
-        pending_decisions: meeting.decisions
-          .filter((decision) => decision.status === 'pending')
-          .map((decision) => ({ id: decision.id, question: decision.question, options: decision.options })),
+        })).filter((row) => vis.edge(row)),
+        // 单线制下专家不参与人类决策（persona 规则 4 已禁其发起），故对节点不回决策项。
+        pending_decisions: vis.full
+          ? meeting.decisions
+            .filter((decision) => decision.status === 'pending')
+            .map((decision) => ({ id: decision.id, question: decision.question, options: decision.options }))
+          : [],
         pending_actions: userActions.map((action) => ({
           id: action.id,
           kind: action.kind,
@@ -1247,14 +1279,21 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           provider: action.provider ?? '',
           model: action.model ?? '',
           text: action.text,
-        })),
-        recent_utterances: utterances.slice(-10).map((utterance) => ({
+        })).filter((row) => vis.action(row)),
+        recent_utterances: utterances.map((utterance) => ({
           speaker: utterance.nodeKey,
           kind: utterance.kind,
           content: utterance.content.slice(0, 400),
           to: utterance.to ?? '',
           round: utterance.round,
-        })),
+        })).filter((row) => vis.utterance(row)).slice(-10),
+        silence: {
+          closedRounds: silence.closedRounds,
+          closedSeats: silence.closedSeats,
+          emptyRounds: silence.emptyRounds,
+          silentSeats: silence.silentSeats,
+          lateReplies: silence.lateReplies,
+        },
         kb_digest: await kbDigestOverview(stateRoot, meeting.id),
       }
     },
@@ -1870,6 +1909,10 @@ function renderStatus(value: Record<string, unknown>): string {
   const pendingActions = Array.isArray(value.pending_actions) ? value.pending_actions as Record<string, unknown>[] : []
   const recent = Array.isArray(value.recent_utterances) ? value.recent_utterances as Record<string, unknown>[] : []
   const kbDigest = (value.kb_digest ?? {}) as Record<string, unknown>
+  const silence = (value.silence ?? {}) as Record<string, unknown>
+  const emptyRounds = Array.isArray(silence.emptyRounds) ? silence.emptyRounds as number[] : []
+  const silentSeats = Array.isArray(silence.silentSeats) ? silence.silentSeats as Record<string, unknown>[] : []
+  const lateReplies = Array.isArray(silence.lateReplies) ? silence.lateReplies as Record<string, unknown>[] : []
   const kbEntries = Array.isArray(kbDigest.entries) ? kbDigest.entries as Record<string, unknown>[] : []
   const kbListed = kbEntries.slice(0, KB_DIGEST_RENDER_LIMIT)
   const lines: string[] = [
@@ -1892,6 +1935,14 @@ function renderStatus(value: Record<string, unknown>): string {
       return `  - [${entry.valid === true ? 'HIT' : 'STALE'}] ${String(entry.path)}: ${shown}`
     }),
     ...(kbEntries.length > kbListed.length ? [`  - …and ${kbEntries.length - kbListed.length} more cached entr(ies)`] : []),
+    // 静默席判据（批次 A ②）：必须**渲染出来**，否则字段进了 JSON 但模型看不见 = 闸等于没接。
+    `Silence gate: empty rounds ${emptyRounds.length} (threshold 0)${emptyRounds.length > 0 ? ` → [${emptyRounds.join(', ')}]` : ''}; silent seats ${silentSeats.length}; late replies ${lateReplies.length}`,
+    ...(silentSeats.length === 0 ? [] : [
+      `  ⚠ silent (dispatched, never spoke, not even later): ${silentSeats.map((s) => `R${String(s.round)}/${String(s.seat)}`).join(', ')} — re-dispatch once or record the gap; never pretend it was collected`,
+    ]),
+    ...(lateReplies.length === 0 ? [] : [
+      `  (late, not a failure but must be recorded: ${lateReplies.map((s) => `R${String(s.round)}/${String(s.seat)}→R${String(s.repliedIn)}`).join(', ')})`,
+    ]),
     `Recent transcript:`,
     ...recent.map((utterance) => `  [R${String(utterance.round)}] ${String(utterance.speaker)}${String(utterance.to ?? '') === '' ? '' : ` → ${String(utterance.to)}`}: ${String(utterance.content)}`),
   ]
@@ -2024,13 +2075,21 @@ export function renderMeetingMarkdown(
   out.push('## 议题 / 目标', '', meeting.goal.trim() === '' ? '（未提供）' : meeting.goal.trim(), '')
 
   out.push(`## 专家名单（${meeting.nodes.length}）`, '')
+  // 静默标记（批次 B ②）：名单行内标出"派了但没回"的席位，
+  // 否则导出物看起来一切正常，整席丢失无从察觉。
+  const silenceForRoster = analyzeSilence(
+    { status: meeting.status, round: meeting.round, nodes: meeting.nodes },
+    utterances,
+  )
   if (meeting.nodes.length === 0) out.push('（无）')
   for (const node of meeting.nodes) {
     const route = `${node.provider ?? '（继承主持人）'}/${node.model ?? '（继承主持人）'}`
     const effort = (node.reasoningEffort ?? '') === '' ? '' : ` @${node.reasoningEffort}`
     const role = (node.role ?? '') === '' ? '（未填角色）' : node.role
-    out.push(`- \`${node.key}\` — ${role} — ${route}${effort} — 状态 ${node.status}`)
+    out.push(`- \`${node.key}\` — ${role} — ${route}${effort} — 状态 ${node.status}${silenceMarkFor(silenceForRoster, node.key)}`)
   }
+  const silenceLine = silenceSummaryLine(silenceForRoster)
+  if (silenceLine !== '') out.push('', `> **静默判据**：${silenceLine}`)
   out.push('')
 
   out.push(`## 决策记录（${meeting.decisions.length}）`, '')

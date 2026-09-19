@@ -290,6 +290,18 @@
   color: rgba(0, 0, 0, 0.8);
 }
 
+/* 缺省预设徽标（B3+ 单一缺省值）。 */
+.presetDefaultBadge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #ffffff;
+  background: #4d6bfe;
+  vertical-align: middle;
+}
+
 .presetMeta {
   font-size: 11px;
   color: rgba(0, 0, 0, 0.5);

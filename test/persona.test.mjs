@@ -62,39 +62,93 @@ test('charter 第三节：自包含 / 建议决策 / 单一出口三规则注入
   assert.ok(charter.includes('单一出口'))
 })
 
-/* ---------------- R-C 名册感知 ---------------- */
+/* ---------------- 三模式语义（2026-09-19 定稿）：单线制不可见他人 ---------------- */
 
-test('R-C modeRule 三分支都带"名册快照 → 查 roundtable_status"提醒', () => {
-  for (const mode of ['orchestrated', 'egalitarian', 'redteam']) {
-    const persona = nodePersona(meeting({ mode }), node, '.roundtable')
-    assert.ok(persona.includes('名册是加入时刻的快照'), `${mode} 应声明名册是快照`)
-    assert.ok(persona.includes('roundtable_status 的 nodes[] 为准'), `${mode} 应指向 roundtable_status 查册`)
+const NODES = [
+  { key: 'alpha', role: '架构主审：只审结构', id: '', status: 'active' },
+  { key: 'beta', role: '落地可行性：只答能不能做', id: '', status: 'active' },
+  { key: 'gamma', role: '验收判据：只写可复验判据', id: '', status: 'active' },
+]
+
+/** 真实装配：charter 在会议创建时生成并存入 meeting.charter，再注入每个节点 persona。 */
+function composed(mode, selfKey = 'alpha') {
+  const m = meeting({ mode, nodes: NODES })
+  const charter = buildCharter(m)
+  return { charter, persona: nodePersona({ ...m, charter }, NODES.find((n) => n.key === selfKey), '.roundtable') }
+}
+
+test('A1 单线制 persona 不含其他席位的 key 与 role（专家互不知情）', () => {
+  for (const mode of ['orchestrated', 'redteam']) {
+    const { persona } = composed(mode)
+    for (const other of ['beta', 'gamma']) {
+      assert.ok(!persona.includes(other), `${mode}: persona 不得出现他人 key ${other}`)
+    }
+    assert.ok(!persona.includes('落地可行性'), `${mode}: persona 不得出现他人 role 文本`)
+    assert.ok(!persona.includes('验收判据：'), `${mode}: persona 不得出现他人 role 文本`)
+    assert.ok(persona.includes('alpha'), `${mode}: 自己的 key 应保留`)
   }
 })
 
-test('R-C nodeWelcome 按模式分叉：平等可直达 / 红队只报主持人 / 统筹等派单', () => {
+test('A1 圆桌制 persona 含全部席位（知道所有其他专家）', () => {
+  const { persona } = composed('egalitarian')
+  assert.ok(persona.includes('beta') && persona.includes('gamma'), 'egalitarian: 应看到全部 key')
+  assert.ok(persona.includes('落地可行性'), 'egalitarian: 应看到他人 role')
+})
+
+test('A2 单线制 charter 不含名册段与连线段；圆桌制含', () => {
+  const single = composed('orchestrated').charter
+  assert.ok(!single.includes('连线通道'), '单线制不得出现连线通道')
+  assert.ok(!single.includes('名册快照'), '单线制不得出现名册快照声明')
+  assert.ok(single.includes('互不披露'), '单线制应声明互不披露')
+  const round = composed('egalitarian').charter
+  assert.ok(round.includes('连线通道') && round.includes('名册快照'), '圆桌制应保留名册与连线')
+})
+
+test('A3 越界处置按模式分叉：单线制上交主持人 / 圆桌制直转同伴', () => {
+  const single = composed('orchestrated').persona
+  assert.ok(single.includes('[越界转派]'), '单线制应教会用 [越界转派] 行上交')
+  assert.ok(!single.includes('直接转给名册里承担该职责的成员'), '单线制不得教直转同伴')
+  const eg = composed('egalitarian').persona
+  assert.ok(eg.includes('直接转给名册里承担该职责的成员'), '圆桌制应教直转同伴')
+  assert.ok(!eg.includes('[越界转派]'), '圆桌制不应用上交行')
+})
+
+test('A4 buildCharter 单线制不含其他席位 key（防 charter 漏改）', () => {
+  for (const mode of ['orchestrated', 'redteam']) {
+    const charter = composed(mode).charter
+    for (const other of ['beta', 'gamma']) {
+      assert.ok(!charter.includes(other), `${mode}: charter 不得出现他人 key ${other}`)
+    }
+  }
+})
+
+test('R-C 名册提示只在圆桌制出现（单线制不提示去查名册）', () => {
+  const eg = nodePersona(meeting({ mode: 'egalitarian' }), node, '.roundtable')
+  assert.ok(eg.includes('名册是加入时刻的快照'), 'egalitarian 应声明名册是快照')
+  assert.ok(eg.includes('roundtable_status 的 nodes[] 为准'), 'egalitarian 应指向 status 查册')
+  for (const mode of ['orchestrated', 'redteam']) {
+    const persona = nodePersona(meeting({ mode }), node, '.roundtable')
+    assert.ok(!persona.includes('名册是加入时刻的快照'), `${mode}: 单线制不得提示名册快照`)
+    assert.ok(persona.includes('不掌握'), `${mode}: 单线制应声明不掌握其他席位`)
+  }
+})
+
+test('nodeWelcome 按模式分叉：圆桌制可直达 / 红队只报主持人 / 统筹单线等派单', () => {
   const egalitarian = nodeWelcome(meeting({ mode: 'egalitarian' }), node)
-  assert.ok(egalitarian.includes('多模型平等'))
-  assert.ok(egalitarian.includes('roundtable_send_message'), '平等模式应教直达消息')
+  assert.ok(egalitarian.includes('圆桌制'))
+  assert.ok(egalitarian.includes('roundtable_send_message'), '圆桌制应教直达消息')
   const redteam = nodeWelcome(meeting({ mode: 'redteam' }), node)
   assert.ok(redteam.includes('针锋相对'))
   assert.ok(redteam.includes('严禁互相直达'))
   const orchestrated = nodeWelcome(meeting({ mode: 'orchestrated' }), node)
-  assert.ok(orchestrated.includes('主持人会给你布置任务'))
+  assert.ok(orchestrated.includes('单线制'), '统筹模式应标明单线制')
+  assert.ok(orchestrated.includes('不掌握'), '统筹模式应声明不掌握其他席位')
   assert.ok(!orchestrated.includes('多模型平等'))
 })
 
-test('R-C nodeWelcome 收尾：名册一律以 roundtable_status 为准', () => {
+test('nodeWelcome 收尾：产出走 roundtable_speak，且单线制不暴露名册来源', () => {
   const welcome = nodeWelcome(meeting(), node)
   assert.ok(welcome.includes('你已加入圆桌会议'))
   assert.ok(welcome.includes('roundtable_speak'))
-  assert.ok(welcome.includes('roundtable_status 的 nodes[] 为准'))
-})
-
-test('R-C charter 名册表带快照新鲜度声明', () => {
-  const charter = buildCharter(meeting({
-    nodes: [{ key: 'engineer', role: '工程', id: '', status: 'active' }],
-  }))
-  assert.ok(charter.includes('名册快照'), '应说明表是编译时刻快照')
-  assert.ok(charter.includes('roundtable_status 的 nodes[] 为准'), '应指向权威名册来源')
+  assert.ok(!welcome.includes('roundtable_status 的 nodes[] 为准'), '单线制 welcome 不得提示查名册')
 })

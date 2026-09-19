@@ -11,6 +11,11 @@ import { listMeetings, readMeeting, readReview, readTranscript, readUserActions 
 import { aggregateUtterances } from './aggregator.ts'
 import { ACTIVE_NODE_STATUSES, AGGREGATOR_KEY, CAPTAIN_KEY } from './types.ts'
 import type { Meeting, MeetingNode, MeetingUtterance, UserAction } from './types.ts'
+import { isDeliverable } from './visibility.ts'
+import { analyzeSilence, silenceSummaryLine } from './silence.ts'
+
+/** 骨架虚线边的 id 前缀（host 侧唯一来源；客户端只读 `implicit` 字段）。 */
+const SYNTHETIC_EDGE_PREFIX = 'synthetic:'
 
 /** 按 key 去重节点列表：同名 key 多次加入（删了重建）时保留最新一条，
  *  且非 removed 优先。返回顺序 = meeting.nodes 首次出现顺序。 */
@@ -70,6 +75,10 @@ export interface MeetingSnapshot {
     from: string
     to: string
     direction: string
+    /** 骨架虚线边（非用户拉的真实边）—— 由 host 判定，客户端不得再解析 id 前缀。 */
+    implicit: boolean
+    /** 该通道能否真的投递（host 侧唯一判定；单线制下专家↔专家为 false）。 */
+    deliverable: boolean
   }[]
   pendingDecisions: {
     id: string
@@ -129,24 +138,29 @@ export interface MeetingSnapshot {
 function synthesizedEdges(meeting: Meeting): MeetingSnapshot['edges'] {
   // 已移除的专家从拓扑彻底消失：其真实连线也不再返回（前端拓扑不渲染 removed 节点）。
   const removedKeys = new Set(meeting.nodes.filter((node) => node.status === 'removed').map((node) => node.key))
+  // 归口：`implicit`（骨架边）与 `deliverable`（能否真投递）都在 host 侧算好，
+  // 客户端零策略 —— 否则它要复制一份 recipientPolicy，就是"同一事实两个判定者"。
+  const decorate = (id: string, from: string, to: string, direction: 'forward' | 'bidirectional'): MeetingSnapshot['edges'][number] => ({
+    id,
+    from,
+    to,
+    direction,
+    implicit: id.startsWith(SYNTHETIC_EDGE_PREFIX),
+    deliverable: isDeliverable(meeting.mode, from, to),
+  })
   const real = meeting.edges
     .filter((edge) => !removedKeys.has(edge.from) && !removedKeys.has(edge.to))
-    .map((edge) => ({
-      id: edge.id,
-      from: edge.from,
-      to: edge.to,
-      direction: edge.direction,
-    }))
+    .map((edge) => decorate(edge.id, edge.from, edge.to, edge.direction))
   if (meeting.mode === 'egalitarian') return real
   const covered = new Set(real.flatMap((edge) => [`${edge.from}→${edge.to}`, `${edge.to}→${edge.from}`]))
   const out: MeetingSnapshot['edges'] = [...real]
   for (const node of meeting.nodes) {
     if (node.status === 'removed') continue
     if (!covered.has(`${CAPTAIN_KEY}→${node.key}`)) {
-      out.push({ id: `synthetic:${CAPTAIN_KEY}:${node.key}`, from: CAPTAIN_KEY, to: node.key, direction: 'bidirectional' })
+      out.push(decorate(`${SYNTHETIC_EDGE_PREFIX}${CAPTAIN_KEY}:${node.key}`, CAPTAIN_KEY, node.key, 'bidirectional'))
     }
     if (!covered.has(`${node.key}→${AGGREGATOR_KEY}`)) {
-      out.push({ id: `synthetic:${node.key}:${AGGREGATOR_KEY}`, from: node.key, to: AGGREGATOR_KEY, direction: 'forward' })
+      out.push(decorate(`${SYNTHETIC_EDGE_PREFIX}${node.key}:${AGGREGATOR_KEY}`, node.key, AGGREGATOR_KEY, 'forward'))
     }
   }
   return out
@@ -285,7 +299,16 @@ export async function collectMeetingSnapshots(
             seq: viewpoint.seq,
           })),
         },
-        digest: aggregateUtterances(utterances),
+        digest: (() => {
+          // 静默标记（批次 B ②）：UI 的网关摘要也带上"谁派了没回"，
+          // 与 tools.ts 的 roundtable_summarize 同一口径。
+          const line = silenceSummaryLine(analyzeSilence(
+            { status: meeting.status, round: meeting.round, nodes: meeting.nodes },
+            utterances,
+          ))
+          const base = aggregateUtterances(utterances)
+          return line === '' ? base : `${base}\n\n[静默判据] ${line}`
+        })(),
         messages: recentDirectedMessages(utterances),
         recent: recentUtterances(utterances),
       })
