@@ -10,3 +10,6 @@ lib/
 .npm-cache/
 # 本地备份留档
 *.bak-*
+# 渲染面测试的 TSX 转译产物（test/dispatch-panel-render.test.mjs 运行时创建/清理；
+# 放在仓库内是为了让 Node 能解析到本仓的 react —— 见该文件的注释）
+test/.render-tmp/

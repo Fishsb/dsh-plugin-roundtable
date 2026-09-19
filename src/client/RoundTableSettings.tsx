@@ -30,6 +30,7 @@ const RATING_LABEL: Record<WireFeedbackEntry['rating'], string> = {
  *  映射值收紧为 `RoundTableKey`，这样拼错文案键过不了 typecheck。 */
 const PANEL_LABELS: Readonly<Record<string, RoundTableKey>> = {
   agents: 'agents',
+  dispatch: 'dispatch',
   kb: 'kb',
 }
 

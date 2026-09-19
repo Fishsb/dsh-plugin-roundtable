@@ -139,8 +139,13 @@ test('硬阈值：口径三（空轮）必须 = 0；迟到只记录', () => {
 test('接线守卫：roundtable_status 必须回传 silence 判据结果', () => {
   const tools = readFileSync(new URL('../src/tools.ts', import.meta.url), 'utf8')
   assert.match(tools, /const silence = analyzeSilence\(/, 'status 必须调用 analyzeSilence（否则闸只存在于测试里）')
-  assert.match(tools, /closedRounds: silence\.closedRounds/, '判据结果必须以 silence 字段回传')
-  assert.match(tools, /silentSeats: silence\.silentSeats/, '静默席必须回传（否则运行态看不见这条缺陷）')
+  assert.match(tools, /closedRounds: silenceForViewer\.closedRounds/, '判据结果必须以 silence 字段回传')
+  assert.match(tools, /silentSeats: silenceForViewer\.silentSeats/, '静默席必须回传（否则运行态看不见这条缺陷）')
+  // R-D 隔离修正：静默判据原本原样返回**全员席位名**，单线制下节点调一次 status
+  // 就能读到同伴 key（与 members.ts deny roundtable_summarize 的理由同型）。
+  // 这条守卫钉死"按可见性裁剪"这一步在运行态存在，而不是只活在这条注释里。
+  assert.match(tools, /const silenceForViewer = vis\.full/, '非全量视角必须走裁剪（否则隔离是假的）')
+  assert.match(tools, /silentSeats: silence\.silentSeats\.filter\(\(entry\) => entry\.seat === viewerKey\)/, '裁剪必须按 viewer 自身过滤静默席')
 })
 
 /* ---------------- 标记辅助（导出与网关摘要尾部共用） ---------------- */

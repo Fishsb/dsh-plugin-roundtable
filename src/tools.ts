@@ -54,6 +54,23 @@ import {
 import { listInvocableSkills, type SkillSummaryLike } from './skills.ts'
 import { recipientPolicy, statusVisibility } from './visibility.ts'
 import { analyzeSilence, silenceMarkFor, silenceSummaryLine } from './silence.ts'
+import {
+  buildRoundSignals,
+  buildTalentPool,
+  dispatchableSeatKeys,
+  formatHandoffRows,
+  formatPlanGaps,
+  formatPlanWaves,
+  isDispatchableSeat,
+  normalizePlanItems,
+  onStagePresetMap,
+  planWaves,
+  presetLinkedSeatIds,
+  requiresDispatchPlan,
+  validateRoundPlan,
+  type PlanReport,
+  type RoundPlan,
+} from './dispatch.ts'
 
 /** Resolved plugin config consumed by the tools. */
 export interface ToolsConfig {
@@ -120,6 +137,9 @@ interface PlannedDefaults {
 
 const DEFAULT_MAX_ROUNDS = 10
 const DEFAULT_MAX_TOKENS = 200_000
+
+/** 落账保留的历轮调度计划条数（防止 meeting.json 无限增长；导出/对账只关心近期）。 */
+const MAX_ROUND_PLANS = 50
 
 /** The caller agent, or a loud failure for non-agent callers. */
 function requireCaptain(exec: { agent?: Agent }): Agent {
@@ -241,9 +261,8 @@ function requireNode(meeting: Meeting, key: string): MeetingNode {
  *  the speaker; a node speaker additionally reaches the captain. Roster
  *  broadcasts ride the same transcript + wake path as directed messages. */
 export function broadcastRecipients(meeting: Meeting, speaker: string): string[] {
-  const live = meeting.nodes
-    .filter((node) => node.status !== 'removed' && node.id !== '' && node.key !== speaker)
-    .map((node) => node.key)
+  // 席位口径单源（dispatch.isDispatchableSeat）：未移除且已出生，再排除发起者。
+  const live = dispatchableSeatKeys(meeting.nodes).filter((key) => key !== speaker)
   return speaker === CAPTAIN_KEY ? live : [CAPTAIN_KEY, ...live]
 }
 
@@ -651,7 +670,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_add_node',
-    description: 'Add an expert node to your meeting: spawns a durable continuable subagent with the meeting charter as its persona. By default the node inherits your current provider/model. Supply provider/model only when the user explicitly wants a different route for this expert. Pass `preset` to reuse one of the user\'s self-built role presets (see roundtable_list_presets) instead of inventing a role.',
+    description: 'Add an expert node to your meeting: spawns a durable continuable subagent with the meeting charter as its persona. By default the node inherits your current provider/model. Supply provider/model only when the user explicitly wants a different route for this expert. Pass `preset` to reuse one of the user\'s self-built role presets (see roundtable_list_presets, or the talent_pool section of roundtable_status) instead of inventing a role. Pulling a seat MID-MEETING is expected: when a round plan lists a `new:<preset>` gap, add that seat here before dispatching that item.',
     parameters: {
       name: { type: 'string', required: true, description: 'Unique node key inside the meeting (e.g. researcher, engineer, reviewer).' },
       role: { type: 'string', description: 'Role description for this expert (e.g. "security reviewer"). Ignored when `preset` resolves.' },
@@ -667,6 +686,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         properties: {
           node_name: { type: 'string', required: true },
           node_id: { type: 'string', required: true },
+          preset_id: { type: 'string', required: true, description: '该席来自哪条预设（空 = 临时角色）。' },
           provider: { type: 'string', required: true },
           model: { type: 'string', required: true },
           reasoning_effort: { type: 'string', required: true },
@@ -675,7 +695,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Node "${value.node_name}" joined (subagent id ${value.node_id}, ${value.provider}/${value.model}${value.reasoning_effort === '' ? '' : ` @ ${value.reasoning_effort}`}, status ${value.status}).`,
+        text: `Node "${value.node_name}" joined (subagent id ${value.node_id}, ${value.provider}/${value.model}${value.reasoning_effort === '' ? '' : ` @ ${value.reasoning_effort}`}, status ${value.status}${value.preset_id === '' ? ', ad-hoc role' : `, from preset ${value.preset_id}`}).`,
       }],
     },
     async execute(args, exec) {
@@ -734,6 +754,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           id: '',
           key: nodeKey,
           role: resolvedRole,
+          // R-D：记下预设来源，候选池才能机检"这条预设是否已在场"。
+          presetId: fromPreset === undefined ? undefined : fromPreset.id,
           provider: resolvedProvider,
           model: resolvedModel,
           reasoningEffort: reasoningEffort === '' ? undefined : reasoningEffort,
@@ -761,6 +783,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         return {
           node_name: node.key,
           node_id: node.id,
+          preset_id: node.presetId ?? '',
           provider: node.provider ?? '',
           model: node.model ?? '',
           reasoning_effort: node.reasoningEffort ?? '',
@@ -896,8 +919,24 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_next_round',
-    description: 'Advance the meeting to the next round and start it. Call this ONCE right before you dispatch a new round of tasks to the nodes — it is what makes the max_rounds budget real (rounds were never counted before). If the round cap is hit by this advance, the meeting becomes muted (闭麦) and the result says so: top up with roundtable_set_budget or close the meeting. Requires the captain.',
-    parameters: {},
+    description: 'Advance the meeting to the next round and start it, WITH the dispatch plan for that round. Call this ONCE right before you dispatch a new round of tasks to the nodes. The plan is what makes "parallel vs serial" machine-checkable instead of a claim: every item is {id, task, owner, depends_on}; empty depends_on = dispatch in the same wave IN PARALLEL, non-empty depends_on = the item waits for those items (a later wave). The tool rejects cycles, dangling depends_on, and unknown seats, then returns waves/gaps. Hard gate: with 2 or more live seats a plan is REQUIRED — if nobody needs a task this round, do not advance the round at all. It also makes the max_rounds budget real; hitting the cap mutes the meeting (闭麦). Requires the captain.',
+    parameters: {
+      plan: {
+        type: 'array',
+        description: '本轮调度计划（在场席 ≥2 时必填）。owner = 在场席 key，或 "new:<预设 id>"（本轮需新拉该预设，会出现在 gaps 里）；depends_on 只填**本轮**其他项的 id。',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string', required: true, description: '本轮内唯一的工作项 id（供 depends_on 引用）。' },
+            task: { type: 'string', required: true, description: '这一项要做什么（一句话，可核）。' },
+            owner: { type: 'string', required: true, description: '承接席：在场席 key，或 new:<预设 id>。' },
+            depends_on: { type: 'array', items: { type: 'string' }, description: '必须先完成的本轮工作项 id；留空 = 与同为空的项并行。' },
+          },
+        },
+      },
+      note: { type: 'string', description: '一句话说明本轮意图（可选，落账进导出物）。' },
+    },
     output: {
       schema: {
         type: 'object',
@@ -907,21 +946,70 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           max_rounds: { type: 'integer', required: true },
           status: { type: 'string', required: true },
           muted_axis: { type: 'string', description: 'Empty when active; "rounds" | "tokens" when this advance muted the meeting.' },
+          plan_items: { type: 'integer', required: true, description: '本轮计划条目数（0 = 单席会议免计划）。' },
+          waves: { type: 'string', required: true, description: '按波次渲染的计划（同波可并发）。' },
+          gaps: { type: 'string', required: true, description: '需要新拉席位的项。' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: value.muted_axis === ''
-          ? `Round ${value.round}/${value.max_rounds} started.`
-          : `Round ${value.round}/${value.max_rounds} — meeting is now MUTED (${value.muted_axis} exceeded). Top up with roundtable_set_budget or close it.`,
+        text: [
+          value.muted_axis === ''
+            ? `Round ${value.round}/${value.max_rounds} started.`
+            : `Round ${value.round}/${value.max_rounds} — meeting is now MUTED (${value.muted_axis} exceeded). Top up with roundtable_set_budget or close it.`,
+          value.plan_items === 0
+            ? 'No dispatch plan (single-live-seat meeting: there is no parallel/serial question to answer).'
+            : `Dispatch plan recorded (${value.plan_items} item(s)):\n${value.waves}`,
+          ...(value.gaps === '' ? [] : [value.gaps]),
+          ...(value.plan_items === 0 ? [] : [
+            'Dispatch wave 1 now (one roundtable_send_message per owner, in parallel); only dispatch a later wave after every item it depends on has reported back.',
+          ]),
+        ].join('\n'),
       }],
     },
-    async execute(_args, exec) {
+    async execute(args, exec) {
       const captain = requireCaptain(exec)
       const stateRoot = stateRootOf(workspaceOf(captain), config.stateDir)
       const located = await locateCaptainMeeting(stateRoot, captain.id)
       return withCaptainLock(stateRoot, located.id, captain.id, 'advance the round', async (fresh) => {
+        const items = normalizePlanItems(args.plan)
+        // 硬门（用户 2026-09-19 拍板）：在场席 ≥2 时，"并行/串行分析"必须交出来。
+        // 判据本体在 dispatch.requiresDispatchPlan（同一个函数被夹具钉死，
+        // 避免"文案说要交、工具其实不查"的两处漂移）；席位口径同样单源。
+        const liveNodes = fresh.nodes.filter(isDispatchableSeat)
+        if (requiresDispatchPlan(liveNodes.length, items.length)) {
+          throw new Error(
+            `roundtable: meeting "${fresh.name}" has ${liveNodes.length} live seats — `
+            + 'roundtable_next_round requires a dispatch plan (plan=[{id,task,owner,depends_on}]). '
+            + 'Empty depends_on means "dispatch in parallel with the other empty ones"; depends_on means "wait for those items". '
+            + `Live seats: ${liveNodes.map((node) => node.key).join(', ')}. `
+            + 'If nobody needs a task this round, do not advance the round at all.',
+          )
+        }
+        // 先校验、后推进：计划不合法时**不得**烧掉一轮（否则错误会让预算静默流失）。
+        let report: PlanReport | undefined
+        if (items.length > 0) {
+          const presets = config.getRolePresets?.() ?? []
+          const check = validateRoundPlan(items, {
+            rosterKeys: liveNodes.map((node) => node.key),
+            presets: presets.map((preset) => ({ id: preset.id, name: preset.name, role: preset.role })),
+            onStagePresetIds: presetLinkedSeatIds(fresh.nodes),
+          })
+          if (!check.ok) throw new Error(`roundtable: invalid dispatch plan — ${check.error}`)
+          report = check.report
+        }
         beginRound(fresh)
+        if (report !== undefined) {
+          const kept = (fresh.roundPlans ?? []).filter((plan) => plan.round !== fresh.round)
+          const recorded: RoundPlan = {
+            round: fresh.round,
+            items,
+            createdAt: Date.now(),
+          }
+          const note = args.note === undefined ? '' : String(args.note).trim().slice(0, 500)
+          if (note !== '') recorded.note = note
+          fresh.roundPlans = [...kept, recorded].slice(-MAX_ROUND_PLANS)
+        }
         const exceeded = budgetExceeded(fresh)
         if (exceeded !== undefined && fresh.status === 'active') fresh.status = 'muted'
         await writeMeeting(stateRoot, fresh)
@@ -930,6 +1018,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           max_rounds: fresh.budget.maxRounds,
           status: fresh.status,
           muted_axis: exceeded ?? '',
+          plan_items: items.length,
+          waves: report === undefined ? '' : formatPlanWaves(report),
+          gaps: report === undefined ? '' : formatPlanGaps(report),
         }
       })
     },
@@ -991,6 +1082,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
     parameters: {
       to: { type: 'string', required: true, description: 'Recipient: "captain", a node key, or "all" (broadcast to every live participant).' },
       content: { type: 'string', required: true, description: 'The message text.' },
+      work_item: { type: 'string', description: 'R-D：这条消息下发的是本轮调度计划里的哪个工作项 id（如 "a1"）。填了才能机检"计划被真的跟到底"——同一席位有多个工作项时，只有席位粒度的对账抓不到漏派。追问/转达意见等不属于任何工作项的消息留空。' },
     },
     output: {
       schema: {
@@ -998,9 +1090,13 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         additionalProperties: false,
         properties: {
           delivered: { type: 'string', required: true, description: 'wake (recipient node woken), live (captain steered), or dropped (best effort failed). For to="all": comma-separated key:outcome per recipient.' },
+          work_item: { type: 'string', required: true, description: '被记录的 work_item（空 = 未按项追踪）。' },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Delivery: ${value.delivered}.` }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: `Delivery: ${value.delivered}${value.work_item === '' ? '' : ` (work item ${value.work_item})`}.`,
+      }],
     },
     async execute(args, exec) {
       const caller = requireCaptain(exec)
@@ -1010,10 +1106,26 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       if (content === '') throw new Error('content must not be empty')
       const to = String(args.to ?? '').trim()
       if (to === '') throw new Error('recipient must not be empty')
+      // R-D：可选的工作项追踪。填了才能机检"计划被真的跟到底"。
+      const workItem = args.work_item !== undefined ? String(args.work_item).trim().slice(0, 60) : ''
       const prepared = await withMeetingLock(meetingLockKey(stateRoot, located.id), async () => {
         const { meeting, identity } = await requireFreshParticipant(stateRoot, located.id, caller.id)
         ensureActive(meeting)
         const speaker = identity.kind === 'captain' ? CAPTAIN_KEY : identity.name
+        // 工作项必须真的在本轮计划里 —— 否则"追踪"本身可以被编造，
+        // 那份对账就只是自证（与"契约须描述现状"同理：不许写不存在的项）。
+        if (workItem !== '') {
+          const currentPlan = (meeting.roundPlans ?? []).find((plan) => plan.round === meeting.round)
+          const known = currentPlan?.items.some((item) => item.id === workItem) === true
+          if (!known) {
+            throw new Error(
+              `work_item "${workItem}" is not an item of round ${meeting.round}'s dispatch plan`
+              + (currentPlan === undefined
+                ? ' (this round has no plan — call roundtable_next_round with one first)'
+                : ` (this round plans: ${currentPlan.items.map((item) => item.id).join(', ')})`),
+            )
+          }
+        }
         // 三模式语义（2026-09-19）：收件人策略集中在 visibility.ts ——
         // 单线制下节点只能发主持人；广播 to="all" 仅圆桌制允许。
         const policy = recipientPolicy(meeting.mode, identity.kind === 'captain' ? 'captain' : 'node', to)
@@ -1027,18 +1139,18 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           const recipients = broadcastRecipients(meeting, speaker)
           if (recipients.length === 0) throw new Error('no live participants to broadcast to (every node is unspawned or removed)')
           for (const recipient of recipients) {
-            await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: recipient })
+            await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: recipient, workItem: workItem === '' ? undefined : workItem })
           }
           return { kind: 'broadcast' as const, meeting, speaker, recipients }
         }
         if (to === CAPTAIN_KEY) {
           // Captain-bound messages are persisted in the transcript; live steering happens after the lock.
-          await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: CAPTAIN_KEY })
+          await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to: CAPTAIN_KEY, workItem: workItem === '' ? undefined : workItem })
           return { kind: 'captain' as const, meeting, speaker }
         }
         const recipient = requireNode(meeting, to)
         if (recipient.id === '') throw new Error(`node "${to}" has no live subagent yet`)
-        await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to })
+        await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind: 'speech', content, to, workItem: workItem === '' ? undefined : workItem })
         return { kind: 'node' as const, meeting, speaker, recipient }
       })
       const captainLive = ctx.agents.get(prepared.meeting.captainSessionId as import('@deepseek-ai/dsh-session').SessionId)
@@ -1057,20 +1169,20 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             : false
           outcomes.push(`${recipient}:${accepted ? 'wake' : 'dropped'}`)
         }
-        return { delivered: outcomes.join(',') }
+        return { delivered: outcomes.join(','), work_item: workItem }
       }
       if (prepared.kind === 'captain') {
         if (captainLive !== undefined && prepared.speaker !== CAPTAIN_KEY) {
           const delivered = steerCaptain(captainLive, `RoundTable message from ${prepared.speaker}:\n\n${content}`)
-          return { delivered: delivered ? 'live' : 'dropped' }
+          return { delivered: delivered ? 'live' : 'dropped', work_item: workItem }
         }
-        return { delivered: 'dropped' }
+        return { delivered: 'dropped', work_item: workItem }
       }
       if (captainLive !== undefined) {
         const accepted = await deliverToNode(ctx, captainLive, prepared.recipient.id, content, exec.signal)
-        return { delivered: accepted ? 'wake' : 'dropped' }
+        return { delivered: accepted ? 'wake' : 'dropped', work_item: workItem }
       }
-      return { delivered: 'dropped' }
+      return { delivered: 'dropped', work_item: workItem }
     },
   }))
 
@@ -1231,6 +1343,47 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         { status: meeting.status, round: meeting.round, nodes: meeting.nodes },
         utterances.map((utterance) => ({ nodeKey: utterance.nodeKey, round: utterance.round, to: utterance.to })),
       )
+      // 隔离修正（R-D 顺带）：静默判据原样返回全员席位名 —— 单线制下节点调一次
+      // `roundtable_status` 就能读到同伴的 key，与 members.ts 里"deny
+      // roundtable_summarize"的理由（文案说不认识、工具一查全认识）是同一个漏洞。
+      // 主持人不受影响；节点只保留**自己**那一条（"你这轮没回"对它是有效信息）。
+      const silenceForViewer = vis.full
+        ? silence
+        : {
+            ...silence,
+            emptyRounds: [] as number[],
+            silentSeats: silence.silentSeats.filter((entry) => entry.seat === viewerKey),
+            lateReplies: silence.lateReplies.filter((entry) => entry.seat === viewerKey),
+          }
+      // R-D ①：候选池进每轮信息面。此前主持人每轮唯一的信息拉取（本工具）
+      // 只回在场席 —— 专家库（用户自建预设）不进信息面，主持人结构上想换人也没得选。
+      // 只给 id/name/路由：28 条预设的 role 全文约 3.4k token，必须走
+      // roundtable_list_presets filter=<关键词> 按需取，不能每轮灌。
+      // 单线制下**只给主持人**：候选池会暴露"还有哪些席位在别处"，那是隔离面。
+      const presets = config.getRolePresets?.() ?? []
+      // 可派单席判据单源（dispatch.isDispatchableSeat）：未移除**且已出生**。
+      const liveSeatKeys = dispatchableSeatKeys(meeting.nodes)
+      // 计算集中在 dispatch.ts（纯函数、夹具可测）；这里只负责取实时数据 + 按可见性裁剪。
+      const talentPool = vis.full
+        ? buildTalentPool(presets, meeting.nodes)
+        : { total: 0, on_stage: [], candidates: [] }
+      // R-D ②：本轮信号的账本侧。计划说了发给谁 vs 实际发给谁；
+      // 专家用 [越界转派] 交给主持人的"该换人"事项（此前只是 persona 文案，
+      // 机器读不到，于是"这活该别人接"永远沉在发言里）。
+      const roundSignals = vis.full
+        ? buildRoundSignals({
+            round: meeting.round,
+            mode: meeting.mode,
+            plan: (meeting.roundPlans ?? []).find((plan) => plan.round === meeting.round),
+            liveSeatKeys,
+            utterances,
+            // `new:<预设>` 已在场时还原成真席位，否则对账会把正常派发误报成
+            // "计划外派发"（假信号淹没真信号）。走**唯一装配入口**，与 snapshot.ts 同源。
+            onStageByPreset: onStagePresetMap(talentPool.on_stage),
+          })
+        // 节点视角给 null（不是 undefined：工具输出必须是 JSON 值）。
+        // 渲染侧按 `round === undefined` 整段省略，绝不渲染成"没做分析"。
+        : null
       return {
         meeting_id: meeting.id,
         meeting_name: meeting.name,
@@ -1288,12 +1441,14 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           round: utterance.round,
         })).filter((row) => vis.utterance(row)).slice(-10),
         silence: {
-          closedRounds: silence.closedRounds,
-          closedSeats: silence.closedSeats,
-          emptyRounds: silence.emptyRounds,
-          silentSeats: silence.silentSeats,
-          lateReplies: silence.lateReplies,
+          closedRounds: silenceForViewer.closedRounds,
+          closedSeats: silenceForViewer.closedSeats,
+          emptyRounds: silenceForViewer.emptyRounds,
+          silentSeats: silenceForViewer.silentSeats,
+          lateReplies: silenceForViewer.lateReplies,
         },
+        talent_pool: talentPool,
+        round_signals: roundSignals,
         kb_digest: await kbDigestOverview(stateRoot, meeting.id),
       }
     },
@@ -1915,6 +2070,33 @@ function renderStatus(value: Record<string, unknown>): string {
   const lateReplies = Array.isArray(silence.lateReplies) ? silence.lateReplies as Record<string, unknown>[] : []
   const kbEntries = Array.isArray(kbDigest.entries) ? kbDigest.entries as Record<string, unknown>[] : []
   const kbListed = kbEntries.slice(0, KB_DIGEST_RENDER_LIMIT)
+  // R-D：候选池 + 本轮信号（缺省时按"没做分析/没定义预设"渲染，不静默）。
+  const pool = (value.talent_pool ?? {}) as Record<string, unknown>
+  const poolTotal = typeof pool.total === 'number' ? pool.total : 0
+  const poolCandidates = Array.isArray(pool.candidates) ? pool.candidates as Record<string, unknown>[] : []
+  const signals = (value.round_signals ?? {}) as Record<string, unknown>
+  const waveRows = Array.isArray(signals.planned_waves) ? signals.planned_waves as unknown[][] : []
+  const plannedWaveText = waveRows.length === 0
+    ? '(none)'
+    : waveRows.map((ids, index) => `[${Array.isArray(ids) ? ids.map(String).join(', ') : ''}]${index === waveRows.length - 1 ? '' : ' → '}`).join('')
+  const undispatchedOwners = Array.isArray(signals.undispatched_owners) ? (signals.undispatched_owners as string[]) : []
+  const plannedOwners = Array.isArray(signals.planned_owners) ? (signals.planned_owners as string[]) : []
+  const unplannedDispatches = Array.isArray(signals.unplanned_dispatches) ? (signals.unplanned_dispatches as string[]) : []
+  const pendingSeats = Array.isArray(signals.pending_seats) ? (signals.pending_seats as string[]) : []
+  const outOfScope = (Array.isArray(signals.out_of_scope) ? signals.out_of_scope : []) as {
+    from_seat: string
+    item: string
+    suggested_role: string
+    round: number
+  }[]
+  // R-D：工作项粒度的漏派（席位口径抓不到"同席位多工作项漏了其中一个"）。
+  const undispatchedItems = Array.isArray(signals.undispatched_items)
+    ? (signals.undispatched_items as { id: string; owner: string; task: string }[])
+    : []
+  const trackedItems = typeof signals.tracked_items === 'number' ? signals.tracked_items : 0
+  const untrackedItems = Array.isArray(signals.untracked_items)
+    ? (signals.untracked_items as { id: string; owner: string; task: string }[])
+    : []
   const lines: string[] = [
     `Meeting "${String(value.meeting_name)}" (id ${String(value.meeting_id)}, mode ${String(value.mode)}, status ${String(value.status)}, round ${String(value.round)})`,
     `Knowledge base path: ${String(value.kb_path ?? '') === '' ? '(none)' : String(value.kb_path)}`,
@@ -1942,6 +2124,49 @@ function renderStatus(value: Record<string, unknown>): string {
     ]),
     ...(lateReplies.length === 0 ? [] : [
       `  (late, not a failure but must be recorded: ${lateReplies.map((s) => `R${String(s.round)}/${String(s.seat)}→R${String(s.repliedIn)}`).join(', ')})`,
+    ]),
+    // R-D ①：候选池必须**渲染出来**（同静默判据的教训：只进 JSON = 闸等于没接）。
+    `Talent pool (${poolTotal} role preset(s); pull one mid-meeting with roundtable_add_node preset=<id>; role text via roundtable_list_presets filter=<kw>):`,
+    ...(poolCandidates.length === 0
+      ? [`  ${poolTotal === 0 && value.viewer !== CAPTAIN_KEY ? '(captain only)' : '(none defined — write the role yourself and say it is ad-hoc)'}`]
+      : poolCandidates.map((candidate) => {
+          const route = String(candidate.provider ?? '') === '' || String(candidate.model ?? '')
+            ? '（继承主持人路由）'
+            : `${String(candidate.provider)}/${String(candidate.model)}`
+          return `  - ${String(candidate.id)} | ${String(candidate.name)} | ${route}${candidate.on_stage === true ? ' | ON STAGE' : ''}`
+        })),
+    `Round signals (R${String(signals.round ?? value.round)}):`,
+    ...(signals.round === undefined ? ['  (captain only)'] : [
+      `  dispatch plan: ${signals.plan_recorded === true ? 'recorded' : 'NOT recorded — no parallel/serial analysis for this round'}`,
+      ...(signals.plan_recorded === true ? [
+        `  planned waves (same wave = dispatch in parallel; later waves wait): ${plannedWaveText}`,
+        // 席位侧分母**always render**：只在"有偏差时"打印，读的人就看不到比较基准，
+        // 无法自行核对"这轮到底该派给谁"（`planned_owners` 曾被算出来却没渲染 ——
+        // 字段进了 JSON、模型看不见，等于闸没接）。
+        `  planned owners (seat level): ${plannedOwners.length === 0 ? '(none — every item is a new:<preset> gap)' : plannedOwners.join(', ')}`,
+      ] : []),
+      ...(undispatchedOwners.length === 0 && unplannedDispatches.length === 0 ? [] : [
+        `  plan vs actual dispatches: ⚠ undispatched owners [${undispatchedOwners.join(', ')}]; unplanned dispatches [${unplannedDispatches.join(', ')}]`,
+      ]),
+      ...(signals.plan_recorded !== true ? [] : [
+        `  plan vs actual work items (pass work_item= on roundtable_send_message to make this exact): tracked ${trackedItems}`
+        + `${undispatchedItems.length === 0 ? '' : `, ⚠ ${undispatchedItems.length} never dispatched (no tag AND the owning seat got nothing this round)`}`
+        + `${untrackedItems.length === 0 ? '' : `, ${untrackedItems.length} untracked (seat was dispatched but the message carried no work_item — unverifiable, NOT a failure)`}`,
+      ]),
+      ...(undispatchedItems.length === 0 ? [] : [
+        `    ⚠ never dispatched: ${undispatchedItems.map((entry) => `${entry.id} → ${entry.owner}`).join('; ')}`,
+      ]),
+      ...(untrackedItems.length === 0 ? [] : [
+        `    untracked: ${untrackedItems.map((entry) => `${entry.id} → ${entry.owner}`).join('; ')} (tag work_item= next time to make it checkable)`,
+      ]),
+      ...(pendingSeats.length === 0 ? [] : [
+        `  pending seats (no utterance yet this round): ${pendingSeats.join(', ')}`,
+      ]),
+      `  out-of-scope handoffs [越界转派] (${String(signals.out_of_scope_total ?? 0)} total — these are the "this needs a different seat" signals; pull that preset or fold it into the summary):`,
+      formatHandoffRows(outOfScope),
+      ...(typeof signals.out_of_scope_hidden === 'number' && signals.out_of_scope_hidden > 0
+        ? [`  (…and ${signals.out_of_scope_hidden} older hidden)`]
+        : []),
     ]),
     `Recent transcript:`,
     ...recent.map((utterance) => `  [R${String(utterance.round)}] ${String(utterance.speaker)}${String(utterance.to ?? '') === '' ? '' : ` → ${String(utterance.to)}`}: ${String(utterance.content)}`),
@@ -2086,10 +2311,43 @@ export function renderMeetingMarkdown(
     const route = `${node.provider ?? '（继承主持人）'}/${node.model ?? '（继承主持人）'}`
     const effort = (node.reasoningEffort ?? '') === '' ? '' : ` @${node.reasoningEffort}`
     const role = (node.role ?? '') === '' ? '（未填角色）' : node.role
-    out.push(`- \`${node.key}\` — ${role} — ${route}${effort} — 状态 ${node.status}${silenceMarkFor(silenceForRoster, node.key)}`)
+    const origin = (node.presetId ?? '') === '' ? '（临时角色）' : `（预设 \`${node.presetId}\`）`
+    out.push(`- \`${node.key}\` — ${role} ${origin} — ${route}${effort} — 状态 ${node.status}${silenceMarkFor(silenceForRoster, node.key)}`)
   }
   const silenceLine = silenceSummaryLine(silenceForRoster)
   if (silenceLine !== '') out.push('', `> **静默判据**：${silenceLine}`)
+  out.push('')
+
+  // R-D：调度计划是"主持人做过并行/串行分析"的唯一机检证据，导出物必须带上，
+  // 否则一份"一把抓全下发"的会议记录看起来与逐波派发完全一样。
+  const plans = meeting.roundPlans ?? []
+  const dispatchedRounds = [...new Set(
+    utterances
+      .filter((utterance) => utterance.nodeKey === CAPTAIN_KEY && (utterance.to ?? '') !== '')
+      .map((utterance) => utterance.round),
+  )].sort((a, b) => a - b)
+  const plannedRounds = new Set(plans.map((plan) => plan.round))
+  const unplanned = dispatchedRounds.filter((round) => !plannedRounds.has(round))
+  out.push(`## 调度计划（${plans.length} 轮已记录）`, '')
+  out.push('> 同波内的项**无相互依赖**（可并发下发）；后面的波等前面的波完成。')
+  out.push('')
+  if (plans.length === 0) out.push('（未记录任何调度计划）')
+  for (const plan of [...plans].sort((a, b) => a.round - b.round)) {
+    out.push(`### 第 ${plan.round} 轮${plan.note === undefined || plan.note === '' ? '' : ` · ${plan.note}`}`, '')
+    for (const wave of planWaves(plan.items)) {
+      out.push(`- **wave ${wave.wave}**${wave.wave === 1 ? '（立刻并发下发）' : `（等 wave ${wave.wave - 1}）`}`)
+      for (const item of wave.items) {
+        const owner = item.owner.startsWith('new:')
+          ? `新拉预设 \`${item.owner.slice(4)}\``
+          : `\`${item.owner}\``
+        out.push(`  - \`${item.id}\` → ${owner}：${item.task}`)
+      }
+    }
+    out.push('')
+  }
+  if (unplanned.length > 0) {
+    out.push(`> ⚠ **未记录调度计划的已派发轮次**：${unplanned.map((round) => `R${round}`).join('、')}（这些轮次的并行/串行取舍无机器凭据）`, '')
+  }
   out.push('')
 
   out.push(`## 决策记录（${meeting.decisions.length}）`, '')

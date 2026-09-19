@@ -13,6 +13,59 @@ import { ACTIVE_NODE_STATUSES, AGGREGATOR_KEY, CAPTAIN_KEY } from './types.ts'
 import type { Meeting, MeetingNode, MeetingUtterance, UserAction } from './types.ts'
 import { isDeliverable } from './visibility.ts'
 import { analyzeSilence, silenceSummaryLine } from './silence.ts'
+import {
+  buildRoundSignals,
+  dispatchableSeatKeys,
+  onStagePresetEntries,
+  onStagePresetMap,
+  presetLinkedSeatIds,
+  validateRoundPlan,
+  type PlanReport,
+} from './dispatch.ts'
+
+/** 角色预设读取面（与 tools.ts 的 `getRolePresets` 同一个来源，由调用方注入）。 */
+export interface SnapshotRolePreset {
+  id: string
+  name: string
+  role: string
+  provider?: string
+  model?: string
+}
+
+/** `collectMeetingSnapshots` 的可选依赖（缺省 = 无预设，不影响其它字段）。 */
+export interface SnapshotOptions {
+  /** 实时读取用户自建角色预设。 */
+  getRolePresets?: () => readonly SnapshotRolePreset[]
+}
+
+/**
+ * 由本轮计划算出**波次**与**缺口**（复用 dispatch.ts 的校验器，不另写一套波次算法）。
+ *
+ * 计划是落账数据，理论上都合法；但它可能是**旧版本**写的、或被手工改坏 ——
+ * 校验失败时返回 null，UI 显示"计划不可解析"，绝不静默画一张假的波次图。
+ */
+function planView(meeting: Meeting, presets: readonly SnapshotRolePreset[]): {
+  waves: PlanReport['waves']
+  gaps: { item: string; presetId: string; presetName: string; onStage: boolean }[]
+} | null {
+  const plan = (meeting.roundPlans ?? []).find((candidate) => candidate.round === meeting.round)
+  if (plan === undefined) return null
+  const report = validateRoundPlan(plan.items, {
+    rosterKeys: dispatchableSeatKeys(meeting.nodes),
+    presets: presets.map((preset) => ({ id: preset.id, name: preset.name, role: preset.role })),
+    onStagePresetIds: presetLinkedSeatIds(meeting.nodes),
+  })
+  if (!report.ok) return null
+  return {
+    waves: report.report.waves,
+    gaps: report.report.gaps.map((gap) => ({
+      item: gap.item,
+      presetId: gap.presetId,
+      presetName: gap.presetName,
+      onStage: gap.onStage,
+    })),
+  }
+}
 
 /** 骨架虚线边的 id 前缀（host 侧唯一来源；客户端只读 `implicit` 字段）。 */
 const SYNTHETIC_EDGE_PREFIX = 'synthetic:'
@@ -110,6 +163,46 @@ export interface MeetingSnapshot {
     }[]
   } | null
   digest: string
+  /**
+   * R-D-UI：本轮调度计划（波次 + 未派项）与专家候选池 —— 拓扑页的「调度」面板数据源。
+   *
+   * 判据口径与 `roundtable_status.round_signals` **同源**（都走 `dispatch.ts` 的
+   * 纯函数），避免"工具说一套、UI 画一套"的两个判定者。
+   * 圆桌制（egalitarian）下 `outOfScope` 恒空（该协议是单线制专属，见 dispatch.ts）。
+   */
+  plan: {
+    /** 本轮是否有计划（false = 没做并行/串行分析，UI 必须显示出来而不是留白）。 */
+    recorded: boolean
+    /** 本轮计划说明（next_round 的 note）。 */
+    note: string
+    /**
+     * 落账的计划**能否解析**（校验失败说明它是旧版本写的或被手工改坏）。
+     * `waves` 为空且 `parsable === false` 时 UI 必须显示"不可解析"，
+     * 绝不能画一张空波次图让人以为"本轮没任务"。
+     */
+    parsable: boolean
+    /** 同波内的项**无相互依赖**（可并发下发）。 */
+    waves: { wave: number; items: { id: string; task: string; owner: string }[] }[]
+    /** 计划点名、但本轮没有任何定向派发的在场席。 */
+    undispatchedOwners: string[]
+    /** 本轮收到定向派发、但不在计划承接席里的席。 */
+    unplannedDispatches: string[]
+    /** 需要新拉席位的项（`new:<预设>`；`onStage` = 该预设其实已在场）。 */
+    gaps: { item: string; presetId: string; presetName: string; onStage: boolean }[]
+    /** 专家用 [越界转派] 交给主持人的"该换人"事项（单线制专属）。 */
+    outOfScope: { fromSeat: string; item: string; suggestedRole: string; round: number }[]
+  }
+  /**
+   * R-D-UI：**本会议**的候选池在场标记（预设清单本身是全局的，客户端已从
+   * `prefs.get` 的 `rolePresets` 拿到，故此处**只下发每会议独有的部分**）。
+   *
+   * 理由：快照是 1Hz 轮询、实测 16 会议 301 KB；把 28 条预设正文按会议重复
+   * 下发是纯浪费。`total` 仍然给，便于 UI 发现"预设清单读到了 0 条"这种异常。
+   */
+  talentPool: {
+    total: number
+    onStage: { presetId: string; nodeKeys: string[] }[]
+  }
   messages: {
     id: string
     from: string
@@ -213,7 +306,10 @@ export async function collectMeetingSnapshots(
   ctx: Context,
   roots: readonly { workspace: string; stateRoot: string }[],
   sessionFilter?: string,
+  options: SnapshotOptions = {},
 ): Promise<MeetingSnapshot[]> {
+  // 预设库每轮只读一次（不是每个会议读一次）：它来自设置页，与会议无关。
+  const presets = options.getRolePresets?.() ?? []
   const wireAction = (action: UserAction): MeetingSnapshot['pendingActions'][number] => ({
     id: action.id,
     kind: action.kind,
@@ -232,6 +328,8 @@ export async function collectMeetingSnapshots(
       const utterances = await readTranscript(root.stateRoot, meetingId)
       const userActions = await readUserActions(root.stateRoot, meetingId)
       const review = await readReview(root.stateRoot, meetingId)
+      // 在场席集合：plan 与 talentPool 两处共用同一份，避免各自计算漂移。
+      const onStageEntries = onStagePresetEntries(meeting.nodes)
       snapshots.push({
         id: meeting.id,
         name: meeting.name,
@@ -311,6 +409,43 @@ export async function collectMeetingSnapshots(
         })(),
         messages: recentDirectedMessages(utterances),
         recent: recentUtterances(utterances),
+        // R-D-UI：调度面板数据源。判据走 dispatch.ts 纯函数，与 status 同源。
+        // 在场席集合**算一次**即可（plan 与 talentPool 共用），避免两处各算一遍漂移。
+        plan: (() => {
+          const plan = (meeting.roundPlans ?? []).find((candidate) => candidate.round === meeting.round)
+          const view = planView(meeting, presets)
+          const signals = buildRoundSignals({
+            round: meeting.round,
+            mode: meeting.mode,
+            plan,
+            liveSeatKeys: dispatchableSeatKeys(meeting.nodes),
+            utterances,
+            // 必填（曾经漏传 → 同一会议两个答案）。走唯一装配入口，与 tools.ts 同源。
+            onStageByPreset: onStagePresetMap(onStageEntries),
+          })
+          return {
+            recorded: plan !== undefined,
+            note: plan?.note ?? '',
+            parsable: plan === undefined || view !== null,
+            waves: view?.waves ?? [],
+            undispatchedOwners: signals.undispatched_owners,
+            unplannedDispatches: signals.unplanned_dispatches,
+            gaps: view?.gaps ?? [],
+            outOfScope: signals.out_of_scope.map((row) => ({
+              fromSeat: row.from_seat,
+              item: row.item,
+              suggestedRole: row.suggested_role,
+              round: row.round,
+            })),
+          }
+        })(),
+        talentPool: {
+          total: presets.length,
+          onStage: onStageEntries.map((entry) => ({
+            presetId: entry.preset_id,
+            nodeKeys: entry.node_keys,
+          })),
+        },
       })
     }
   }

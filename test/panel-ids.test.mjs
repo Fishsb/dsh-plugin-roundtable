@@ -31,7 +31,10 @@ test('客户端文案映射覆盖 host 的全部面板 id（缺一个就是死�
 
 test('视图渲染的 data-rt-panel 必须在 host 清单内（拼错即红）', () => {
   const view = read('../src/client/RoundTableView.tsx')
-  const rendered = [...view.matchAll(/data-rt-panel="([a-z]+)"/g)].map((m) => m[1])
+  // R-D-UI 抽模块：`dispatch` 面板的 data-rt-panel 现在落在 DispatchPanel.tsx
+  // （抽出去的理由是"可被真渲染断言"，见该文件头注释）。两处合起来算渲染集合。
+  const panel = read('../src/client/DispatchPanel.tsx')
+  const rendered = [...(view + panel).matchAll(/data-rt-panel="([a-z]+)"/g)].map((m) => m[1])
   assert.ok(rendered.length > 0, '应当解析出 data-rt-panel 属性')
   for (const id of rendered) {
     assert.ok(ROUNDTABLE_PANELS.includes(id), `视图里的面板 id 不在 host 清单内：${id}`)
@@ -41,6 +44,8 @@ test('视图渲染的 data-rt-panel 必须在 host 清单内（拼错即红）',
   // 否则要么留下"点了没事发生"的死开关，要么渲染出 host 不认的面板。
   assert.deepEqual([...rendered].sort(), [...ROUNDTABLE_PANELS].sort(),
     `视图渲染 ${rendered.length} 个面板，host 清单 ${ROUNDTABLE_PANELS.length} 个 —— 两者必须一一对应`)
+  // 抽出去的那个面板必须仍被视图**引用**（否则等于删了它而 host 清单还留着）
+  assert.match(view, /<DispatchPanel/, '视图必须真的挂载 DispatchPanel')
 })
 
 test('host 清单自身：无重复、非空、与 host 与客户端集合交集非空', () => {

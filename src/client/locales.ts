@@ -55,6 +55,23 @@ export type RoundTableKey =
   | 'meetingSelect'
   | 'agents'
   | 'kb'
+  | 'dispatch'
+  | 'dispatchNoPlan'
+  | 'dispatchUnparsable'
+  | 'dispatchWave'
+  | 'dispatchWaveParallel'
+  | 'dispatchWaveWait'
+  | 'dispatchGap'
+  | 'dispatchGapOnStage'
+  | 'dispatchUnplanned'
+  | 'dispatchUndispatched'
+  | 'dispatchOutOfScope'
+  | 'dispatchPoolTitle'
+  | 'dispatchPoolHint'
+  | 'dispatchPoolNone'
+  | 'dispatchPoolOnStage'
+  | 'dispatchPoolAdHoc'
+  | 'dispatchPlanNote'
   | 'activity'
   | 'kbEmpty'
   | 'noActivity'
@@ -256,6 +273,23 @@ export const zh: Record<RoundTableKey, string> = {
   fetchFailed: '拉取会议状态失败，正在重试…',
   meetingSelect: '切换会议',
   agents: '专家',
+  dispatch: '调度',
+  dispatchNoPlan: '本轮未记录调度计划 —— 未做并行/串行分析（主持人应在派单前用 roundtable_next_round 交计划）。',
+  dispatchUnparsable: '本轮落账的计划无法解析（可能是旧版本写入或被手工改动）—— 不画波次图，请主持人重新交一份计划。',
+  dispatchWave: '第 {n} 波',
+  dispatchWaveParallel: '立刻并发下发',
+  dispatchWaveWait: '等第 {n} 波完成',
+  dispatchGap: '需新拉席位',
+  dispatchGapOnStage: '该预设已在场',
+  dispatchUnplanned: '计划外派发',
+  dispatchUndispatched: '计划点名但本轮未派发',
+  dispatchOutOfScope: '越界转派（该换人）',
+  dispatchPoolTitle: '专家候选池',
+  dispatchPoolHint: '预设清单在「设置 → 圆桌会议 → 角色预设」维护；会议中途可用它拉人。',
+  dispatchPoolNone: '尚未定义任何角色预设（列表空着，等你自己建）。',
+  dispatchPoolOnStage: '在场',
+  dispatchPoolAdHoc: '临时角色',
+  dispatchPlanNote: '本轮意图',
   kb: '知识库',
   activity: '发言记录',
   kbEmpty: '该文件夹内暂无文件',
@@ -453,6 +487,23 @@ export const en: Record<RoundTableKey, string> = {
   fetchFailed: 'Failed to fetch meeting state, retrying…',
   meetingSelect: 'Switch meeting',
   agents: 'Agents',
+  dispatch: 'Dispatch',
+  dispatchNoPlan: 'No dispatch plan for this round — no parallel/serial analysis (the captain should pass one to roundtable_next_round before dispatching).',
+  dispatchUnparsable: 'This round\'s recorded plan cannot be parsed (written by an older version or hand-edited) — no wave chart is drawn; ask the captain to re-submit a plan.',
+  dispatchWave: 'Wave {n}',
+  dispatchWaveParallel: 'dispatch now, in parallel',
+  dispatchWaveWait: 'after wave {n}',
+  dispatchGap: 'needs a new seat',
+  dispatchGapOnStage: 'already on stage',
+  dispatchUnplanned: 'Dispatched but not planned',
+  dispatchUndispatched: 'Planned but not dispatched this round',
+  dispatchOutOfScope: 'Out-of-scope handoffs (needs a different seat)',
+  dispatchPoolTitle: 'Talent pool',
+  dispatchPoolHint: 'The preset catalogue lives in Settings → RoundTable → Role presets; pull one mid-meeting from here.',
+  dispatchPoolNone: 'No role presets defined yet (the list stays empty until you create one).',
+  dispatchPoolOnStage: 'on stage',
+  dispatchPoolAdHoc: 'ad-hoc role',
+  dispatchPlanNote: 'Round intent',
   kb: 'Knowledge base',
   activity: 'Activity',
   kbEmpty: 'No files in this folder yet',

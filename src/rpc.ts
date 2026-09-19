@@ -86,6 +86,7 @@ export interface RoundTablePreferences {
  */
 export const ROUNDTABLE_PANELS: readonly string[] = [
   'agents',
+  'dispatch',
   'kb',
 ]
 

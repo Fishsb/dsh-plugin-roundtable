@@ -21,6 +21,7 @@ import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireNode, WirePro
 import { fetchMeetings } from './wire.ts'
 import { BRAND_LOGOS } from './brand-logos.generated.ts'
 import styles from './RoundTableView.module.css'
+import { DispatchPanel } from './DispatchPanel.tsx'
 
 export interface RoundTableViewInjected {
   rpc: RpcCaller
@@ -418,6 +419,37 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // Selected meeting (kept stable while the polled list refreshes), falling
   // back to the first meeting when the selection is missing or unset.
   const meeting = meetings.find((candidate) => candidate.id === selectedId) ?? meetings[0]
+
+  /**
+   * R-D-UI：本会议里**已在场**的预设 id 集合。
+   *
+   * 由 host 在快照里以 `presetId` 精确关联（`MeetingNode.presetId`），客户端只做
+   * 集合化 —— 不按 role 文本比对（那是猜，且会与 host 的判定漂移）。
+   * 旧 host 不返回 `talentPool` 时为空集：此时面板仍显示预设清单，只是不打在场标记。
+   */
+  const onStagePresetIds = useMemo(
+    () => new Set((meeting?.talentPool?.onStage ?? []).map((entry) => entry.presetId)),
+    [meeting?.talentPool],
+  )
+
+  /**
+   * 传给 `DispatchPanel` 的样式类（模块自己不知道 CSS Modules 长什么样）。
+   * 逐字段显式列出：漏一个会在 typecheck 报错，而不是运行时静默丢样式。
+   */
+  const dispatchPanelStyles = {
+    digestSectionTitle: styles.digestSectionTitle,
+    kbRow: styles.kbRow,
+    kbName: styles.kbName,
+    kbMeta: styles.kbMeta,
+    kbError: styles.kbError,
+    logRow: styles.logRow,
+    logHead: styles.logHead,
+    logFrom: styles.logFrom,
+    logTime: styles.logTime,
+    logText: styles.logText,
+    manageHint: styles.manageHint,
+    panelEmpty: styles.panelEmpty,
+  }
 
   // 用量是按会议取的（`usage.get` 收 `meetingId`），所以换会议必须清掉上一场的结果：
   // 否则 agents 面板会继续显示**上一场**的逐节点 token/耗时，而且没有任何"旧数据"标记，
@@ -1345,6 +1377,14 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           </div>
         </section>
 
+        <DispatchPanel
+          plan={meeting.plan}
+          presets={presetList}
+          onStageIds={onStagePresetIds}
+          className={panelClass('dispatch')}
+          t={translate}
+          styles={dispatchPanelStyles}
+        />
         <section className={panelClass('kb')} data-rt-panel="kb">
           <div className={styles.panelTitleRow}>
             <span className={styles.panelTitle}>{translate('kb')}</span>

@@ -218,6 +218,43 @@ export interface WireUtterance {
   round: number
 }
 
+/** R-D-UI：本轮调度计划（波次 + 对账），快照携带，拓扑页「调度」面板数据源。 */
+export interface WirePlanItem {
+  id: string
+  task: string
+  owner: string
+}
+
+export interface WirePlanWave {
+  wave: number
+  items: WirePlanItem[]
+}
+
+export interface WireDispatchPlan {
+  /** 本轮是否交过计划（false = 没做并行/串行分析，UI 必须显示而非留白）。 */
+  recorded: boolean
+  note: string
+  /** 落账计划能否解析（false = 旧版本写的或被改坏，禁止画空波次图）。 */
+  parsable: boolean
+  waves: WirePlanWave[]
+  undispatchedOwners: string[]
+  unplannedDispatches: string[]
+  gaps: { item: string; presetId: string; presetName: string; onStage: boolean }[]
+  /** 专家用 [越界转派] 交给主持人的"该换人"事项（单线制专属，圆桌制恒空）。 */
+  outOfScope: { fromSeat: string; item: string; suggestedRole: string; round: number }[]
+}
+
+/**
+ * R-D-UI：本会议的候选池在场标记。
+ *
+ * 预设清单本身是**全局**的（客户端已从 `prefs.get` 的 `rolePresets` 拿到），
+ * 快照只下发每会议独有的部分 —— 1Hz 轮询下不重复搬运同一份清单。
+ */
+export interface WireTalentPool {
+  total: number
+  onStage: { presetId: string; nodeKeys: string[] }[]
+}
+
 export interface WireMeeting {
   id: string
   name: string
@@ -240,6 +277,10 @@ export interface WireMeeting {
   pendingActions: WirePendingAction[]
   review: WireReview | null
   digest: string
+  /** R-D-UI：本轮调度计划（可选 —— 旧 host 不返回该字段）。 */
+  plan?: WireDispatchPlan
+  /** R-D-UI：本会议候选池的在场标记（可选 —— 旧 host 不返回该字段）。 */
+  talentPool?: WireTalentPool
   messages: WireMessage[]
   recent: WireUtterance[]
 }

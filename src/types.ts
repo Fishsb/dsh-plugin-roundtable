@@ -51,6 +51,10 @@ export interface MeetingNode {
   key: string
   /** Role description, e.g. `researcher`, `engineer`, `reviewer`. */
   role?: string
+  /** R-D：该席由哪条用户预设拉起来（`add_node.preset` 解析成功时记录）。
+   *  用途：候选池要能回答"这条预设现在是否已在场"——没有这个字段就只能
+   *  按 role 文本比对，那是猜。临时写的角色（未用预设）留空。 */
+  presetId?: string
   /** Resolved LLM provider route captured when this node was created. */
   provider?: string
   /** Resolved model captured when this node was created. */
@@ -87,6 +91,16 @@ export interface MeetingUtterance {
   summary?: string
   /** Directed audience (absent = submitted to the gateway). */
   to?: string
+  /**
+   * R-D：这条发言派发的是本轮计划里的哪个工作项（`roundtable_send_message`
+   * 的可选 `work_item`）。
+   *
+   * 为什么需要它：**席位粒度**的对账回答不了"同一席位有两个工作项、其中一个
+   * 没派" —— 实测中 a1/a3 都归 verify，只派 a1 时席位口径全绿。带上工作项 id
+   * 才能把"计划被真的跟到底"变成可机检事实。留空 = 未按项追踪（追问、转达意见
+   * 等本来就不属于任何工作项）。
+   */
+  workItem?: string
   round: number
   ts: number
 }
@@ -109,6 +123,30 @@ export interface MeetingBudget {
   maxTokens: number
   usedRounds: number
   usedTokens: number
+}
+
+/** 一轮调度计划的一条工作项（R-D，持久化在 `Meeting.roundPlans` 里）。
+ *
+ *  这是"并行/串行"的**唯一权威表达**：`dependsOn` 为空 ⇒ 与同为空的项同波
+ *  并行；非空 ⇒ 波次 = 1 + max(依赖波次)。校验与波次计算见 `dispatch.ts`。 */
+export interface RoundPlanItem {
+  /** 工作项 id：**本轮内**唯一，供同轮其他项引用。 */
+  id: string
+  /** 做什么（一句话，可核）。 */
+  task: string
+  /** 承接席：在场节点 key，或 `new:<预设 id>`（本轮需新拉该预设）。 */
+  owner: string
+  /** 必须先完成的工作项 id（空 = 可并行）。 */
+  dependsOn: string[]
+}
+
+/** 落账的一轮计划（主持人推进轮次时提交，超预算闭麦也保留）。 */
+export interface RoundPlan {
+  round: number
+  items: RoundPlanItem[]
+  /** 主持人一句话本轮意图（可选）。 */
+  note?: string
+  createdAt: number
 }
 
 /**
@@ -199,6 +237,10 @@ export interface Meeting {
   budget: MeetingBudget
   /** Current debate round. */
   round: number
+  /** R-D：历轮调度计划（按轮升序）。**这是"主持人做过并行/串行分析"的唯一
+   *  机检证据** —— 没有它，主持人的"我分析过了"无法与"一把抓全下发"区分。
+   *  缺省（旧会议）= 未记录任何计划，status 会显式标为 unplanned。 */
+  roundPlans?: RoundPlan[]
   /** 知识库目录（阅览版）：主持人按需读取其中文件转交专家。空 = 未设置。 */
   kbPath?: string
   /** 本次会议选中的 skill 名称清单（来自 `ctx.skills.list()`）；空/缺省 = 未选。 */
