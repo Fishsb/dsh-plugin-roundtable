@@ -116,22 +116,6 @@ function layoutPositions(size: { w: number; h: number }, meeting: WireMeeting): 
   return positions
 }
 
-/** Shorten a segment by the node radius at both ends and return arrow tips. */
-function edgeGeometry(from: Point, to: Point): { x1: number; y1: number; x2: number; y2: number; angle: number } {
-  const dx = to.x - from.x
-  const dy = to.y - from.y
-  const length = Math.max(1, Math.hypot(dx, dy))
-  const ux = dx / length
-  const uy = dy / length
-  return {
-    x1: from.x + ux * NODE_RADIUS,
-    y1: from.y + uy * NODE_RADIUS,
-    x2: to.x - ux * NODE_RADIUS,
-    y2: to.y - uy * NODE_RADIUS,
-    angle: Math.atan2(dy, dx),
-  }
-}
-
 /** SVG arrowhead polygon points at (x, y) pointing along `angle`. */
 function arrowPoints(x: number, y: number, angle: number, size = 7): string {
   const tip = { x, y }
@@ -435,6 +419,13 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // back to the first meeting when the selection is missing or unset.
   const meeting = meetings.find((candidate) => candidate.id === selectedId) ?? meetings[0]
 
+  // 用量是按会议取的（`usage.get` 收 `meetingId`），所以换会议必须清掉上一场的结果：
+  // 否则 agents 面板会继续显示**上一场**的逐节点 token/耗时，而且没有任何"旧数据"标记，
+  // 那些数字看起来仍然是权威的（第 4 轮验收：三席独立命中，F1）。
+  useEffect(() => {
+    setUsage(null)
+  }, [meeting?.id])
+
   // E1：会议结束（status ended）且反馈开启、本会议尚未问过 → 弹轻量反馈。
   useEffect(() => {
     if (meeting === undefined || !feedbackEnabled) return
@@ -602,7 +593,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       void rpc<unknown>('roundtable/edge.add', { meetingId, from, to, direction: 'forward' })
         .then((result) => {
           if (result.ok) {
-            setToast({ kind: 'ok', text: translate('edgeConnected').replace('{from}', from).replace('{to}', to) })
+            // 单线制下"连线"不改变通信权限，所以成功 toast 必须说清它到底成功的是什么，
+            // 否则拖完一条专家↔专家的线会得到"已连接"，用户据此以为改动了权限（批次 A/B 遗留）。
+            const template = meeting?.mode === 'egalitarian' ? 'edgeConnected' : 'edgeConnectedSingleLine'
+            setToast({ kind: 'ok', text: translate(template).replace('{from}', from).replace('{to}', to) })
             void refresh()
           } else {
             setToast({ kind: 'err', text: result.error?.message ?? '连线失败' })
@@ -616,7 +610,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
     }
-  }, [drag, refresh, rpc, positions])
+  }, [drag, refresh, rpc, positions, meeting?.mode])
 
   // Recent messages (≤3s old) drive a one-shot flow pulse along their edge.
   const activeMessages = useMemo(() => {
@@ -779,10 +773,32 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       })
   }
 
-  const closeManage = (): void => {    setManageOpen(false)
+  const closeManage = (): void => {
+    setManageOpen(false)
     setForm({ name: '', role: '', provider: '', model: '' })
     setSelectedPresetId('')
   }
+
+  // 第 4 轮验收缺口：三个 `role="dialog"` 弹窗此前只能点遮罩或关闭按钮退出
+  // （`src/client` 全目录 `Escape|keydown|onKeyDown` 零命中）。Esc 关闭是最小可验证
+  // 的一步；focus trap / 焦点回位**仍挂账**，不与本次混做（键盘行为回归难归因）。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      // 一次只关最上层：评审 > 专家管理 > 知识库（与 DOM 中的叠加顺序相反）。
+      if (reviewOpen) {
+        setReviewOpen(false)
+        return
+      }
+      if (manageOpen) {
+        closeManage()
+        return
+      }
+      if (kbOpen) closeKb()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [reviewOpen, manageOpen, kbOpen, closeManage, closeKb])
 
   // Queue an expert removal: only the user-actions file is written; the
   // captain performs roundtable_remove_node next round.
@@ -954,6 +970,11 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     const arrowClass = synthetic
       ? (involvesCaptain ? styles.edgeArrowSyntheticCaptain : involvesAggregator ? styles.edgeArrowSyntheticAggregator : styles.edgeArrowSynthetic)
       : (involvesCaptain ? styles.edgeArrowCaptain : involvesAggregator ? styles.edgeArrowAggregator : styles.edgeArrow)
+    // host 侧已判定这条通道**能不能真投递**（`deliverable`）。单线制下专家↔专家的线
+    // 只是"转达顺序"的可视化、不能投递 —— 必须让用户看得出来，否则拖完弹"已连接"
+    // 会让人误以为改动了通信权限。（第 4 轮验收：该字段此前是"只写不读"的中间值。）
+    const undeliverable = edge.deliverable === false
+    const wireClass = undeliverable ? `${roleClass} ${styles.edgeUndeliverable}` : roleClass
     return (
       <g
         key={edge.id}
@@ -966,7 +987,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           setMenu({ x: event.clientX, y: event.clientY, meetingId: meeting.id, edge })
         }}
       >
-        <path d={path} fill="none" className={roleClass} />
+        {undeliverable ? <title>{translate('edgeUndeliverableHint')}</title> : null}
+        <path d={path} fill="none" className={wireClass} />
         <polygon points={head} className={arrowClass} />
         {tail !== null ? <polygon points={tail} className={arrowClass} /> : null}
       </g>
@@ -1157,7 +1179,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               单线制下"连线 = 通信权限"是错的直觉，必须常驻说清。 */}
           <div className={styles.legend}>
             <span className={styles.legendTitle}>{translate('edgeLegend')}</span>
-            <span className={styles.legendText}>{translate('edgeScopeHint')}</span>
+            <span className={styles.legendText}>
+              {translate(meeting.mode === 'egalitarian' ? 'edgeScopeHintEgalitarian' : 'edgeScopeHint')}
+            </span>
           </div>
           {toast !== null ? (
             <div className={styles.toast}>
@@ -1229,6 +1253,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               aria-label={translate('usageButton')}
               title={translate('usageButton')}
               onClick={loadUsage}
+              // 端点会**惰性折叠整条会话日志**（第一方文档：snapshot 物化投影），
+              // 连点等于重复折叠。此前只换了字符（`…`），按钮仍可点。
+              disabled={usageLoading}
             >
               {usageLoading ? '…' : '⏱'}
             </button>
@@ -1259,7 +1286,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                         : Object.entries(entry.provider_tokens).map(([field, value]) => `${field}: ${value}`).join('\n')}
                     >
                       {entry.provider_total === null
-                        ? translate('usageUnavailable')
+                        // 两种"没有值"必须分开说：投影没挂 vs 该席当前无活会话。
+                        // 原先一律说"宿主未挂投影"，与端点自己回的
+                        // `projections_available: true` 直接矛盾（第 4 轮验收）。
+                        ? translate(usage.projections_available ? 'usageDormant' : 'usageUnavailable')
                         : `${String(entry.provider_total)} tok`}
                       {/* 耗时优先用该席 agent 的真实累计（`subagentTiming`）；
                           `~` = 回合进行中（数字还会涨）。没有 agent 投影时才退回
@@ -1729,7 +1759,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             {menu.edge.from} → {menu.edge.to}
           </div>
           {/* 菜单首行即说明（批次 A ⑧）：右键是用户主动询问"这条线是什么"的时刻 */}
-          <div className={styles.contextMenuNote}>{translate('edgeScopeHint')}</div>
+          <div className={styles.contextMenuNote}>
+            {translate(meeting.mode === 'egalitarian' ? 'edgeScopeHintEgalitarian' : 'edgeScopeHint')}
+          </div>
           <button type="button" className={styles.contextMenuItem} onClick={() => handleEdgeAction('forward')}>
             {translate('edgeSetForward')}
           </button>

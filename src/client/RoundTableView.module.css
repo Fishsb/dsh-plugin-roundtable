@@ -76,11 +76,9 @@
   background: rgba(198, 40, 40, 0.14);
 }
 
-/* 右栏「分针记录」摘要卡片：可点击打开评审窗口 */
-
-.reviewCard:hover {
-  background: rgba(198, 40, 40, 0.1);
-}
+/* 说明：右栏那张评审摘要卡片的 `:hover` 规则曾留在这里，但它所属的三条卡片规则
+   已随 review 面板一并删除 —— "删一半"会留下孤儿选择器，让后来者以为该面板还在。
+   （此处刻意不再写出那两个类名字面量，免得后面的死码扫描把它当成存活证据。） */
 
 
 
@@ -1442,14 +1440,11 @@
   }
 }
 
-.reviewPassBadge {
-  font-size: 10px;
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-weight: 600;
-  margin-right: 6px;
+/* 不可投递的连线（host 判定 `deliverable=false`）：单线制下专家↔专家的线
+   只是"转达顺序"的可视化。用透明度区分（不用虚线 —— 虚线已被骨架边占用），
+   并配 SVG `<title>` 说明；这样"拖完弹已连接"不再被误读成改动了通信权限。 */
+.edgeUndeliverable {
+  opacity: 0.45;
 }
 
 .reviewEvidence {

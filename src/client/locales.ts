@@ -31,6 +31,9 @@ export type RoundTableKey =
   | 'edgeSetBidirectional'
   | 'edgeRemove'
   | 'edgeScopeHint'
+  | 'edgeScopeHintEgalitarian'
+  | 'edgeUndeliverableHint'
+  | 'edgeConnectedSingleLine'
   | 'edgeLegend'
   | 'edgeConnected'
   | 'portConnect'
@@ -109,7 +112,6 @@ export type RoundTableKey =
   | 'feedbackAskMeh'
   | 'feedbackAskBad'
   | 'feedbackAskNotePlaceholder'
-  | 'feedbackAskSubmit'
   | 'feedbackAskSkip'
   | 'feedbackAskSubmitted'
   | 'feedbackAskFailed'
@@ -117,6 +119,7 @@ export type RoundTableKey =
   | 'usageButton'
   | 'usageNote'
   | 'usageUnavailable'
+  | 'usageDormant'
   | 'usageFailed'
   | 'manageTitle'
   | 'managePendingNote'
@@ -155,10 +158,8 @@ export type RoundTableKey =
   | 'reviewClose'
   | 'reviewBadge'
   | 'reviewOpen'
-  | 'reviewStatusReady'
   | 'reviewStatusReviewing'
   | 'reviewStatusDone'
-  | 'reviewEndorsedCount'
   | 'reviewPending'
   | 'reviewRejected'
   | 'reviewReject'
@@ -232,6 +233,9 @@ export const zh: Record<RoundTableKey, string> = {
   edgeSetBidirectional: '设为双向通道',
   edgeRemove: '删除连线',
   edgeScopeHint: '这条线只表示主持人按此顺序转达。专家之间互不相识，收不到彼此的消息；跨专家讨论一律由主持人代转。',
+  edgeScopeHintEgalitarian: '圆桌制（多模型平等）：专家互相看得见，可以直接给对方派活并抄送主持人 —— 这里的连线就是真实可用的对话通道。',
+  edgeUndeliverableHint: '单线制：这条连线不改变通信权限，只表示主持人按此顺序转达。',
+  edgeConnectedSingleLine: '已连接 {from} → {to}（单线制：此连线不表示专家之间能直接通话，只表示转达顺序）',
   edgeLegend: '连线含义',
   edgeConnected: '已连上 {from} → {to}（线只表示主持人照此转达）',
   portConnect: '从此端口拖出连线',
@@ -298,7 +302,8 @@ export const zh: Record<RoundTableKey, string> = {
   pendingBadge: '{n} 条操作待下一轮生效',
   usageButton: '查看逐节点用量',
   usageNote: 'provider 上报值；s = 该席 agent 累计耗时（~ 进行中）；预算条是本地字符估算，口径不同',
-  usageUnavailable: '无 provider 值（节点无会话或宿主未挂投影）',
+  usageUnavailable: '无法取 provider 值：宿主未挂 session-projection',
+  usageDormant: '该席当前无活会话（会议暂停或未唤醒）；数字仍在它的会话里，唤醒后可读',
   usageFailed: '用量读取失败',
   manageTitle: '专家管理',
   managePendingNote: '以下操作已记录，主持人将在下一轮对话中逐条执行；执行失败会保留记录。',
@@ -338,10 +343,8 @@ export const zh: Record<RoundTableKey, string> = {
   reviewClose: '关闭',
   reviewBadge: '针锋相对',
   reviewOpen: '打开评审',
-  reviewStatusReady: '已就绪',
   reviewStatusReviewing: '评审中',
   reviewStatusDone: '已完成',
-  reviewEndorsedCount: '已认定',
   reviewPending: '待审/未表态',
   reviewRejected: '已驳回',
   reviewReject: '驳回',
@@ -375,7 +378,6 @@ export const zh: Record<RoundTableKey, string> = {
   feedbackAskMeh: '一般',
   feedbackAskBad: '没帮助',
   feedbackAskNotePlaceholder: '最卡的点是什么？（可选）',
-  feedbackAskSubmit: '提交',
   feedbackAskSkip: '跳过',
   feedbackAskSubmitted: '谢谢反馈！可随时在设置 → 圆桌会议 → 用户反馈中关闭或清空。',
   feedbackAskFailed: '反馈提交失败',
@@ -428,6 +430,9 @@ export const en: Record<RoundTableKey, string> = {
   edgeSetBidirectional: 'Set bidirectional',
   edgeRemove: 'Remove edge',
   edgeScopeHint: "This line only shows how the captain passes things along. The experts don't know about each other and never receive each other's messages — the captain relays everything.",
+  edgeScopeHintEgalitarian: 'Round-table (egalitarian): experts see each other and may task each other directly, cc-ing the captain — the lines here are real messaging channels.',
+  edgeUndeliverableHint: 'Single-line mode: this edge grants no messaging right — it only shows the captain’s relay order.',
+  edgeConnectedSingleLine: 'Connected {from} → {to} (single-line mode: this edge does not mean the experts can talk directly; it shows relay order)',
   edgeLegend: 'What a line means',
   edgeConnected: 'Connected {from} → {to} (the line only means the captain relays this way)',
   portConnect: 'Drag from this port to connect',
@@ -494,7 +499,8 @@ export const en: Record<RoundTableKey, string> = {
   pendingBadge: '{n} pending action(s), effective next round',
   usageButton: "Per-node usage",
   usageNote: "Provider-reported; s = that seat's agent time (~ = turn in flight); the budget bar is a local text estimate — different measures",
-  usageUnavailable: "no provider value (no live session or projection unmounted)",
+  usageUnavailable: 'No provider value: the host has no session-projection mounted',
+  usageDormant: 'No live session for this seat right now (meeting paused or not woken) — the numbers still live in its session and become readable once it is woken',
   usageFailed: "Failed to read usage",
   manageTitle: 'Expert management',
   managePendingNote: 'The actions below are recorded; the captain executes them one by one next round. Failed actions stay recorded.',
@@ -534,10 +540,8 @@ export const en: Record<RoundTableKey, string> = {
   reviewClose: 'Close',
   reviewBadge: 'Adversarial review',
   reviewOpen: 'Open review',
-  reviewStatusReady: 'ready',
   reviewStatusReviewing: 'reviewing',
   reviewStatusDone: 'done',
-  reviewEndorsedCount: 'endorsed',
   reviewPending: 'unreviewed',
   reviewRejected: 'rejected',
   reviewReject: 'Reject',
@@ -571,7 +575,6 @@ export const en: Record<RoundTableKey, string> = {
   feedbackAskMeh: 'Meh',
   feedbackAskBad: 'Not useful',
   feedbackAskNotePlaceholder: 'What was the biggest pain point? (optional)',
-  feedbackAskSubmit: 'Submit',
   feedbackAskSkip: 'Skip',
   feedbackAskSubmitted: 'Thanks! Manage or clear feedback anytime under Settings → RoundTable → User feedback.',
   feedbackAskFailed: 'Failed to submit feedback',
