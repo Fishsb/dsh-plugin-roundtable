@@ -17,11 +17,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { RpcCaller, WireEdge, WireKbListing, WireMeeting, WireModelCatalog, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
-import { fetchMeetings } from './wire.ts'
+import type { RpcCaller, WireChatMessage, WireEdge, WireKbListing, WireMeeting, WireModelCatalog, WireModeState, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
+import { fetchMeetings, fetchTranscript } from './wire.ts'
 import { BRAND_LOGOS } from './brand-logos.generated.ts'
 import styles from './RoundTableView.module.css'
 import { DispatchPanel } from './DispatchPanel.tsx'
+import { ChatView } from './ChatView.tsx'
 
 export interface RoundTableViewInjected {
   rpc: RpcCaller
@@ -50,6 +51,9 @@ interface DragState {
 }
 
 const NODE_RADIUS = 34
+
+/** `roundtable/transcript.list` 的申请条数（与 host 侧上限对齐）。 */
+const TRANSCRIPT_PAGE = 200
 
 /** Provider → brand avatar (logo image if bundled, else abbreviation + brand color). */
 const PROVIDER_BRAND: Array<{ key: string; match: RegExp; abbr: string; color: string; dark?: boolean }> = [
@@ -288,6 +292,27 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const [askFeedbackFor, setAskFeedbackFor] = useState<string | null>(null)
   const [feedbackNote, setFeedbackNote] = useState('')
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 })
+  /**
+   * 本会话的讨论模式读数（host 回包，不是本地猜测）。
+   *
+   * 默认 `null` = 尚未问过 host：徽章先不画，免得在真值回来前闪一个假状态。
+   */
+  const [modeState, setModeState] = useState<WireModeState | null>(null)
+  /**
+   * 视图切换：拓扑（原有窗口） / 群聊（QQ 群聊形态）。
+   *
+   * 刻意**不落盘**：这与「讨论模式不落盘」同一条理由 —— 这是"此刻在看什么"的
+   * 交互意图，不是配置。写成持久配置的结果是用户下次打开这个 Tab 时莫名不在
+   * 他默认预期的那个视图上，而他自己想不起来何时切的。
+   */
+  const [view, setView] = useState<'topology' | 'chat'>('topology')
+  /** 群聊窗口的数据（按需拉取，**不进** 1Hz 轮询）。 */
+  const [chatMessages, setChatMessages] = useState<WireChatMessage[]>([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState('')
+  /** host 侧因 limit 截断了更早发言（提示用户"上面还有"）。 */
+  const [chatTruncated, setChatTruncated] = useState(false)
+  const [chatSending, setChatSending] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const hoverTimer = useRef<number | null>(null)
 
@@ -382,7 +407,12 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // 0 box on first paint (flex under a yet-unsized slot), which would leave
   // the topology empty; we fall back to a sane default so nodes always have
   // coordinates, then correct to the real size once the layout settles.
+  //
+  // 依赖 `view`：切到群聊时画布卸载（containerRef 变 null），切回来时是**新**的
+  // DOM 节点 —— 若不在切回时重跑，ResizeObserver 会一直盯着那个已卸载的旧节点，
+  // 于是新画布拿到 size=0，节点全挤在默认坐标上。
   useEffect(() => {
+    if (view !== 'topology') return
     const container = containerRef.current
     if (container === null) return
     const measure = (): void => {
@@ -399,7 +429,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       window.cancelAnimationFrame(raf)
       observer.disconnect()
     }
-  }, [])
+  }, [view])
 
   // Close the context menu on any click elsewhere.
   useEffect(() => {
@@ -408,6 +438,53 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     window.addEventListener('click', close)
     return () => window.removeEventListener('click', close)
   }, [menu])
+
+  /**
+   * 讨论模式：本 tab 挂载 = 该会话进入"圆桌讨论模式"（`auto` 那一份）。
+   *
+   * 为什么挂在挂载/卸载而不是"打开下拉选一次"：用户的诉求是「在这个窗口里发
+   * 消息默认就是圆桌讨论」—— 那么判据只能是"他此刻正看着这个 tab"，而不是
+   * 一次性的点击。收起（切回聊天 tab / 关页面）时撤销自己那一份，命令开的
+   * `manual` 不受影响。
+   *
+   * 写法上刻意 **不** 用 `await rpc(...).then(...)` 直接 setState：卸载后
+   * 回包还在路上时 setState 会给 React 报警（且徽章会显示已不再成立的状态），
+   * 用一个 alive 标志把晚到的回包丢掉。
+   */
+  useEffect(() => {
+    let alive = true
+    const write = async (active: boolean): Promise<void> => {
+      const result = await rpc<WireModeState>('roundtable/mode.set', { sessionId: String(sessionId), active })
+      if (!alive) return
+      if (result.ok) setModeState(result.value)
+    }
+    void write(true)
+    // 挂载即写一次，同时把真值读回来 —— 徽章显示 host 的实际状态（命令开的
+    // 模式也会因此在徽章上亮起），不是"我这次写成功了"的自证。
+    return () => {
+      alive = false
+      void rpc<WireModeState>('roundtable/mode.set', { sessionId: String(sessionId), active: false })
+        .then((result) => { if (result.ok) return result.value })
+        .catch(() => undefined)
+    }
+  }, [rpc, sessionId])
+
+  // 命令开的模式也要能亮：轮询真值（1 次/5 秒，只在页面可见时）。
+  // 比 mode.set 的回包更权威 —— 用户可能在另一个 tab 里敲了 /roundtable off。
+  useEffect(() => {
+    let alive = true
+    const tick = async (): Promise<void> => {
+      if (document.visibilityState === 'hidden') return
+      const result = await rpc<WireModeState>('roundtable/mode.get', { sessionId: String(sessionId) })
+      if (!alive || !result.ok) return
+      setModeState(result.value)
+    }
+    const timer = window.setInterval(() => { void tick() }, 5000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [rpc, sessionId])
 
   // Auto-dismiss the connect-result toast after a short beat.
   useEffect(() => {
@@ -456,7 +533,97 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   // 那些数字看起来仍然是权威的（第 4 轮验收：三席独立命中，F1）。
   useEffect(() => {
     setUsage(null)
+    // 群聊记录同样按会议隔离：换会议不清，会显示成新会议的发言。
+    setChatMessages([])
+    setChatError('')
+    setChatTruncated(false)
   }, [meeting?.id])
+
+  /** 拉一次群聊全量（首次进入 / 换会议）。 */
+  const loadTranscript = useCallback(async (meetingId: string): Promise<void> => {
+    setChatLoading(true)
+    try {
+      const list = await fetchTranscript(rpc, meetingId)
+      setChatMessages(list)
+      // host 侧夹取到上限即视为截断：条数正好等于上限时也是截断，
+      // 因为它可能就是"第 1000 条之后还有"。
+      setChatTruncated(list.length >= TRANSCRIPT_PAGE)
+      setChatError('')
+    } catch (error: unknown) {
+      setChatError(translate('chatLoadFailed').replace('{msg}', error instanceof Error ? error.message : String(error)))
+    } finally {
+      setChatLoading(false)
+    }
+  }, [rpc, translate])
+
+  /**
+   * 增量补齐：把 `since` 之后的新发言合并进本地列表。
+   *
+   * 抽成一个函数而不是在三处各写一遍合并逻辑 —— 那段逻辑有**两个容易写错的
+   * 不变式**（按 id 去重、合完必须重新按 ts 升序），写三遍就有三份会漂移的拷贝。
+   */
+  const mergeSince = useCallback(async (meetingId: string, since: number): Promise<void> => {
+    const list = await fetchTranscript(rpc, meetingId, { since })
+    if (list.length === 0) return
+    setChatMessages((current) => {
+      const seen = new Set(current.map((message) => message.id))
+      const merged = [...current]
+      for (const message of list) {
+        if (seen.has(message.id)) continue
+        seen.add(message.id)
+        merged.push(message)
+      }
+      merged.sort((a, b) => a.ts - b.ts)
+      return merged
+    })
+  }, [rpc])
+
+  // 进入群聊视图时拉一次全量；之后靠下面的增量补齐跟上新发言。
+  // 依赖 `view` 而不是常开：拓扑视图下不产生任何额外请求（响应体积验收项）。
+  useEffect(() => {
+    if (view !== 'chat') return
+    const meetingId = meeting?.id
+    if (meetingId === undefined) return
+    if (chatMessages.length > 0) return
+    void loadTranscript(meetingId)
+  }, [view, meeting?.id, chatMessages.length, loadTranscript])
+
+  /**
+   * 增量补齐：会话有新发言时只拉 `since=本地最新 ts` 的那一段。
+   *
+   * 为什么不用 `meeting.recent` 直接追加：`recent` 的正文被截到 90 字
+   * （snapshot.ts 的 compactText），把它当消息体会让群聊显示半截话。
+   * 所以新发言一律回 host 取全文，`recent` 只用来**判断"有没有新的"**。
+   */
+  const latestRecentTs = meeting?.recent?.[0]?.ts ?? 0
+  const latestChatTs = chatMessages.length === 0 ? 0 : chatMessages[chatMessages.length - 1]!.ts
+  useEffect(() => {
+    if (view !== 'chat') return
+    const meetingId = meeting?.id
+    if (meetingId === undefined) return
+    if (latestRecentTs <= latestChatTs) return
+    // 不设 alive 标志的理由：合并走的是函数式 setState（updater），晚到的回包
+    // 在卸载后是 no-op，不会像直接 setState 那样给 React 报警。
+    void mergeSince(meetingId, latestChatTs).catch(() => undefined)
+  }, [view, meeting?.id, latestRecentTs, latestChatTs, mergeSince])
+
+  /** 群聊发送：落一条主持人口吻的用户发言（host 侧标 `source: 'user'`）。 */
+  const sendChat = useCallback(async (text: string): Promise<void> => {
+    const meetingId = meeting?.id
+    if (meetingId === undefined || chatSending) return
+    setChatSending(true)
+    try {
+      const result = await rpc<{ id: string; ts: number }>('roundtable/say', { meetingId, text })
+      if (!result.ok) throw new Error(result.error.message)
+      // 不做乐观插入：以 host 回包为准回读一次增量，避免"显示了但没落库"。
+      await mergeSince(meetingId, latestChatTs)
+      setChatError('')
+    } catch (error: unknown) {
+      setChatError(translate('chatSendFailed').replace('{msg}', error instanceof Error ? error.message : String(error)))
+    } finally {
+      setChatSending(false)
+    }
+  }, [rpc, meeting?.id, chatSending, latestChatTs, mergeSince, translate])
 
   // E1：会议结束（status ended）且反馈开启、本会议尚未问过 → 弹轻量反馈。
   useEffect(() => {
@@ -1102,7 +1269,27 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
 
   return (
     <div className={styles.root}>
-      <div className={styles.main}>
+      <div className={[styles.main, view === 'chat' ? styles.mainChat : ''].filter(Boolean).join(' ')} data-rt-view={view}>
+        <div className={styles.viewTabs} role="tablist" aria-label={translate('viewTopology')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'topology'}
+            className={[styles.viewTab, view === 'topology' ? styles.viewTabActive : ''].filter(Boolean).join(' ')}
+            onClick={() => setView('topology')}
+          >
+            {translate('viewTopology')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'chat'}
+            className={[styles.viewTab, view === 'chat' ? styles.viewTabActive : ''].filter(Boolean).join(' ')}
+            onClick={() => setView('chat')}
+          >
+            {translate('viewChat')}
+          </button>
+        </div>
         <div className={styles.header}>
           <div className={styles.titleRow}>
             <span className={styles.meetingName}>{meeting.name}</span>
@@ -1123,6 +1310,17 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             <span className={styles.badge}>{modeLabel}</span>
             <span className={styles.badge}>{meeting.status}</span>
             <span className={styles.round}>{translate('round')} {meeting.round}</span>
+            {/* 讨论模式徽章（E 功能）：本 tab 打开即亮；命令开的模式也会亮。
+                `null` = 还没问到 host，先不画 —— 不闪假状态。 */}
+            {modeState === null ? null : (
+              <span
+                className={[styles.modeBadge, modeState.active ? styles.modeBadgeOn : ''].filter(Boolean).join(' ')}
+                title={modeState.active ? translate('modeOnHint') : translate('modeOffHint')}
+              >
+                {modeState.active ? translate('modeOn') : translate('modeOff')}
+                {modeState.manual ? <span className={styles.modeBadgeManual}>{translate('modeViaCommand')}</span> : null}
+              </span>
+            )}
             {meeting.review !== null ? (
               <button
                 type="button"
@@ -1170,6 +1368,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             </div>
           ) : null}
         </div>
+        {view === 'topology' ? (
+          <>
         <div ref={containerRef} className={[styles.canvas, drag !== null ? styles.canvasDragging : ''].filter(Boolean).join(' ')}>
           <svg className={styles.edgeLayer} width={size.w > 0 ? size.w : 900} height={size.h > 0 ? size.h : 480}>
             {meeting.edges.map(renderEdge)}
@@ -1232,12 +1432,17 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             </div>
           ) : null}
         </div>
+          </>
+        ) : null}
+        {/* 发言时间轴（批次 B ③）：原 activity 面板的**唯一独占信息**是时间戳
+            （digest 由 aggregator 产出、不含时间），故并进摘要区作第二视图。
+            ⚠ 群聊视图下**不渲染**这一段：群聊窗口已经用气泡+时间展示了同一批发言，
+            两处并列就是同一份信息的第二份拷贝（抗堆叠）。时间戳信息不丢 ——
+            群聊气泡自带完整时间，这里只是在群聊视图下让位。 */}
+        {view === 'topology' ? (
         <details className={styles.digest}>
           <summary>{translate('gatewayDigest')}</summary>
           <pre className={styles.digestBody}>{meeting.digest || translate('noDigest')}</pre>
-          {/* 发言时间轴（批次 B ③）：原 activity 面板的**唯一独占信息**是时间戳
-              （digest 由 aggregator 产出、不含时间），故并进摘要区作第二视图，
-              而不新增面板、也不丢弃时间信息。 */}
           <div className={styles.digestSectionTitle}>{translate('activity')}</div>
           {(meeting.recent ?? []).length === 0 ? (
             <div className={styles.panelEmpty}>{translate('noActivity')}</div>
@@ -1253,6 +1458,19 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             </div>
           ))}
         </details>
+        ) : (
+        <ChatView
+          meeting={meeting}
+          messages={chatMessages}
+          truncated={chatTruncated}
+          loading={chatLoading}
+          error={chatError}
+          sending={chatSending}
+          t={translate}
+          brandOf={providerBrand}
+          onSend={(text) => { void sendChat(text) }}
+        />
+        )}
       </div>
 
       <aside className={styles.sidebar}>

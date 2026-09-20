@@ -221,6 +221,28 @@ export type RoundTableKey =
   | 'managePresetLabel'
   | 'managePresetPlaceholder'
   | 'managePresetEmpty'
+  | 'modeOn'
+  | 'modeOff'
+  | 'modeViaCommand'
+  | 'modeOnHint'
+  | 'modeOffHint'
+  | 'viewTopology'
+  | 'viewChat'
+  | 'chatMembers'
+  | 'chatEmpty'
+  | 'chatEmptyHint'
+  | 'chatInputPlaceholder'
+  | 'chatSend'
+  | 'chatSending'
+  | 'chatSendFailed'
+  | 'chatLoadFailed'
+  | 'chatLoading'
+  | 'chatYou'
+  | 'chatTruncated'
+  | 'chatToday'
+  | 'chatRoundDivider'
+  | 'chatToGateway'
+  | 'chatToSeat'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -445,6 +467,28 @@ export const zh: Record<RoundTableKey, string> = {
   managePresetLabel: '角色预设',
   managePresetPlaceholder: '选择预设自动填充',
   managePresetEmpty: '还没有预设：去「设置 → 圆桌会议 → 角色预设」新建一个。',
+  modeOn: '讨论模式 · 开',
+  modeOff: '讨论模式 · 关',
+  modeViaCommand: '（命令开启）',
+  modeOnHint: '本会话已处于圆桌讨论模式：在这里发的每条消息都按圆桌会议处理（先出设置卡）。关闭用聊天框里的 /roundtable off。',
+  modeOffHint: '本会话未处于圆桌讨论模式：把「圆桌会议」tab 打开即可自动开启，或在聊天框敲 /roundtable 手动开启。',
+  viewTopology: '拓扑',
+  viewChat: '群聊',
+  chatMembers: '{n} 位成员',
+  chatEmpty: '群里还没有发言',
+  chatEmptyHint: '会议开始后，主持人与专家的发言会实时出现在这里。',
+  chatInputPlaceholder: '以主持人身份说一句…（Enter 发送，Shift+Enter 换行）',
+  chatSend: '发送',
+  chatSending: '发送中…',
+  chatSendFailed: '发送失败：{msg}',
+  chatLoadFailed: '群聊记录加载失败：{msg}',
+  chatLoading: '正在加载群聊记录…',
+  chatYou: '我',
+  chatTruncated: '仅显示最近 {n} 条；更早的发言未载入。',
+  chatToday: '今天',
+  chatRoundDivider: '第 {n} 轮',
+  chatToGateway: '→ 汇聚网关',
+  chatToSeat: '→ {to}',
 }
 
 export const en: Record<RoundTableKey, string> = {
@@ -663,4 +707,26 @@ export const en: Record<RoundTableKey, string> = {
   managePresetLabel: 'Role preset',
   managePresetPlaceholder: 'Pick a preset to autofill',
   managePresetEmpty: 'No presets yet — create one under Settings → RoundTable → Role presets.',
+  modeOn: 'Discussion mode · on',
+  modeOff: 'Discussion mode · off',
+  modeViaCommand: '(via command)',
+  modeOnHint: 'This session is in round-table discussion mode: every message sent here is handled as a round-table meeting (starting with the settings card). Turn it off with /roundtable off in the chat box.',
+  modeOffHint: 'This session is not in round-table discussion mode: open the “RoundTable” tab to turn it on automatically, or type /roundtable in the chat box.',
+  viewTopology: 'Topology',
+  viewChat: 'Group chat',
+  chatMembers: '{n} members',
+  chatEmpty: 'No messages yet',
+  chatEmptyHint: 'Once the meeting starts, the captain and the experts will show up here in real time.',
+  chatInputPlaceholder: 'Speak as the captain… (Enter to send, Shift+Enter for a newline)',
+  chatSend: 'Send',
+  chatSending: 'Sending…',
+  chatSendFailed: 'Send failed: {msg}',
+  chatLoadFailed: 'Failed to load the transcript: {msg}',
+  chatLoading: 'Loading the transcript…',
+  chatYou: 'Me',
+  chatTruncated: 'Showing the latest {n}; earlier messages are not loaded.',
+  chatToday: 'Today',
+  chatRoundDivider: 'Round {n}',
+  chatToGateway: '→ gateway',
+  chatToSeat: '→ {to}',
 }

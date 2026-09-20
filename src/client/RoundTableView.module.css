@@ -17,6 +17,41 @@
   gap: 8px;
 }
 
+/* ---------- 视图切换条（拓扑 / 群聊） ---------- */
+
+.viewTabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.viewTab {
+  font-size: 12px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.viewTab:hover {
+  border-color: rgba(128, 128, 128, 0.6);
+}
+
+.viewTabActive {
+  border-color: transparent;
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  color: #ffffff;
+  cursor: default;
+}
+
+/* 群聊视图下 main 只需纵向铺满，不再有画布尺寸约束 */
+.mainChat {
+  gap: 6px;
+}
+
 .header {
   display: flex;
   flex-direction: column;
@@ -1655,4 +1690,32 @@
 
 .usageValue {
   font-variant-numeric: tabular-nums;
+}
+
+/* 讨论模式徽章（本 tab 一打开就点亮；命令开的模式由 host 回包点亮）。
+   两个来源一眼可分，免得用户以为"开 tab 就等于开会"。 */
+.modeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  color: rgba(0, 0, 0, 0.55);
+  background: rgba(128, 128, 128, 0.08);
+  white-space: nowrap;
+}
+
+.modeBadgeOn {
+  border-color: rgba(38, 145, 92, 0.55);
+  color: #1c6b45;
+  background: rgba(38, 145, 92, 0.12);
+}
+
+.modeBadgeManual {
+  margin-left: 4px;
+  font-weight: 400;
+  opacity: 0.75;
 }

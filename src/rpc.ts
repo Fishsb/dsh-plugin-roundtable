@@ -26,10 +26,12 @@ import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { randomUUID } from 'node:crypto'
 import { readdir, rm, stat } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join } from 'node:path'
-import type { EdgeDirection, FeedbackEntry, RolePreset, UserAction } from './types.ts'
+import type { EdgeDirection, FeedbackEntry, MeetingUtterance, RolePreset, UserAction } from './types.ts'
+import { CAPTAIN_KEY } from './types.ts'
 import {
   appendFeedback,
   appendUserAction,
+  appendUtterance,
   clearFeedback,
   clearFeedbackForMeeting,
   meetingDirOf,
@@ -47,6 +49,7 @@ import {
 import { buildCharter } from './charter.ts'
 import { digestIsFresh } from './kb-digest.ts'
 import { agentTimingOfSnapshot, providerTokensOfSnapshot, providerUsageTotal } from './usage.ts'
+import type { SessionModeTable } from './mode.ts'
 
 /** RPC result envelope (mirrors the apiproxy wire shape). */
 export type RpcResult<T> =
@@ -104,6 +107,56 @@ export function sanitizeHiddenPanels(value: unknown): string[] {
 
 /** 预设条目的硬上限（客户端与服务端共用；服务端截断，客户端提前拦截）。 */
 export const ROLE_PRESET_MAX = 50
+/** `roundtable/transcript.list` 的默认/最大返回条数（**必须夹取**，不设无界读）。 */
+export const TRANSCRIPT_LIMIT_DEFAULT = 200
+export const TRANSCRIPT_LIMIT_MAX = 1000
+/** `roundtable/say` 的单条发言字数上限（与会议文本的既有量级一致）。 */
+export const SAY_TEXT_MAX = 4000
+
+/**
+ * 把任意输入收敛成一个合法的 `transcript.list` 条数上限。
+ *
+ * 独立成导出纯函数（而非内联在 switch 里）的理由：**"不设无界读"是这条端点的
+ * 核心约束**，而它只有被真的跑一遍才算断言过。内联写法只能靠源码正则守卫，
+ * 那是"字符串出现过"的证据，不是"夹取真的生效"的证据。
+ *
+ * @param raw 客户端传来的 `limit`（任意类型）。
+ * @returns `[1, TRANSCRIPT_LIMIT_MAX]` 内的整数；非法输入回落到默认值。
+ */
+export function clampTranscriptLimit(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return TRANSCRIPT_LIMIT_DEFAULT
+  return Math.min(Math.max(Math.floor(raw), 1), TRANSCRIPT_LIMIT_MAX)
+}
+
+/**
+ * 从全量发言里切出要发给群聊窗口的那一段。
+ *
+ * 两条语义各自都可能悄悄坏，所以做成纯函数而不是内联在处理器里：
+ *   - `since > 0` 时**严格大于**（增量补齐不能把边界那条重复送回，否则前端
+ *     id 去重之外还要靠 ts 兜底，多一层不必要的假设）；
+ *   - 取**尾部** `limit` 条（群聊要看最新），但**按升序返回**（气泡顺序即时间
+ *     顺序，前端不该再排一次）。
+ *
+ * @param all   全量发言（按 ts 升序）。
+ * @param since ts 下界；`<= 0` 表示不筛。
+ * @param limit 已由 {@link clampTranscriptLimit} 收敛过的条数上限。
+ */
+export function selectTranscriptWindow<T extends { ts: number }>(
+  all: readonly T[],
+  since: number,
+  limit: number,
+): T[] {
+  const filtered = since > 0 ? all.filter((utterance) => utterance.ts > since) : [...all]
+  return filtered.length > limit ? filtered.slice(filtered.length - limit) : filtered
+}
+
+/** `roundtable/say` 的正文裁决（非法输入给出可读原因，不抛）。 */
+export function normalizeSayText(raw: unknown): { ok: true; text: string } | { ok: false; reason: string } {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  if (text === '') return { ok: false, reason: 'payload must include a non-empty text' }
+  if (text.length > SAY_TEXT_MAX) return { ok: false, reason: `text exceeds ${SAY_TEXT_MAX} characters` }
+  return { ok: true, text }
+}
 const ROLE_PRESET_ID_MAX = 64
 const ROLE_PRESET_NAME_MAX = 40
 const ROLE_PRESET_ROLE_MAX = 400
@@ -337,6 +390,15 @@ export interface RoundTableRuntime {
   stateDir: string
   /** In-memory preferences used when the settings scope is not mounted. */
   fallbackPrefs: RoundTablePreferences
+  /**
+   * 会话级「圆桌讨论模式」状态表（会话 tab 那一半写入面）。
+   *
+   * 为什么放在 runtime 而不是新开一个服务：`registerRpc` 是**唯一**同时被
+   * 浏览器两条 transport 与 host 命令层看见的装配点，模式状态只有一个消费者
+   * 面（RPC），多开一层服务只是多一条要维护的传递链。可选是因为它只承载
+   * UI 侧写的 `auto` 那一份 —— 缺席时 `mode.set` 报错、其余端点不受影响。
+   */
+  mode?: SessionModeTable
 }
 
 /**
@@ -705,6 +767,29 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               })
             })
           }
+          case 'roundtable/mode.get': {
+            // 会话级讨论模式：徽章数据源。缺席的会话按"未开"回答（不是错误）。
+            const body = payload as { sessionId?: unknown } | undefined
+            const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+            if (sessionId === '') return ok({ active: false, auto: false, manual: false })
+            const state = runtime.mode?.read(sessionId)
+            return ok({
+              active: state === undefined ? false : (state.auto || state.manual),
+              auto: state?.auto ?? false,
+              manual: state?.manual ?? false,
+            })
+          }
+          case 'roundtable/mode.set': {
+            // tab 挂载/卸载 → 写 `auto` 那一份。命令写的 `manual` 不受影响。
+            const body = payload as { sessionId?: unknown; active?: unknown } | undefined
+            const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+            if (sessionId === '') return fail('payload needs a non-empty sessionId')
+            if (typeof body?.active !== 'boolean') return fail('payload needs a boolean active')
+            if (runtime.mode === undefined) return fail('mode table is not mounted in this composition')
+            runtime.mode.set(sessionId, 'auto', body.active)
+            const state = runtime.mode.read(sessionId)
+            return ok({ active: state.auto || state.manual, auto: state.auto, manual: state.manual })
+          }
           case 'roundtable/user-actions.append': {
             // The Web UI records an expert edit here instead of touching
             // meeting state; the captain drains the file next round.
@@ -751,6 +836,58 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
             if (meetingId === '') return fail('payload must be { meetingId }')
             return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
               return ok<UserAction[]>(await readUserActions(stateRoot, meetingId))
+            })
+          }
+          case 'roundtable/transcript.list': {
+            // 群聊窗口的**按需**全量读取。
+            //
+            // 为什么不放宽快照里的 `recent`：那是 1Hz 轮询载荷的一部分
+            // （snapshot.ts 记有"16 会议 301 KB"实测），把 20 条上限或 90 字截断
+            // 放宽会让**每场会议每次轮询**都变大。群聊只在其窗口打开时需要全量，
+            // 所以做成独立端点按需拉取 —— 轮询体保持原样。
+            //
+            // ⚠ 权限边界（写给后人）：本端点服务于**浏览器的用户视角**，用户是
+            // 会议的信息枢纽，理应看到全部发言。它与专家侧 `roundtable_status`
+            // 的 `statusVisibility` 过滤（visibility.ts）是**两套独立权限**——
+            // 禁止拿 `statusVisibility` 来过滤本端点，那会让用户在群聊里看不到
+            // 自己会议的全貌。
+            const body = payload as { meetingId?: unknown; since?: unknown; limit?: unknown } | undefined
+            const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
+            if (meetingId === '') return fail('payload must be { meetingId, since?, limit? }')
+            const since = typeof body?.since === 'number' && Number.isFinite(body.since) ? body.since : 0
+            const limit = clampTranscriptLimit(body?.limit)
+            return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
+              const all = await readTranscript(stateRoot, meetingId)
+              return ok<MeetingUtterance[]>(selectTranscriptWindow(all, since, limit))
+            })
+          }
+          case 'roundtable/say': {
+            // 群聊输入框：用户在窗口里说的话，落成一条主持人发言。
+            //
+            // 与 `roundtable/speak`（主持人工具）的区别只在 `source: 'user'`：
+            // 身份同为 `captain`（用户就是主持人本人），但主持人下一轮读
+            // transcript 时必须能区分"用户亲口说的"与"我自己说的"，否则会
+            // 把用户的话当成自己的话 —— 那是归因错误，不是风格问题。
+            const body = payload as { meetingId?: unknown; text?: unknown } | undefined
+            const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
+            if (meetingId === '') return fail('payload must be { meetingId, text }')
+            const judged = normalizeSayText(body?.text)
+            if (!judged.ok) return fail(judged.reason)
+            const text = judged.text
+            return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
+              const meeting = await readMeeting(stateRoot, meetingId)
+              if (meeting === undefined) return fail(`meeting "${meetingId}" not found`)
+              const utterance: MeetingUtterance = {
+                id: randomUUID(),
+                nodeKey: CAPTAIN_KEY,
+                kind: 'speech',
+                content: text,
+                source: 'user',
+                round: meeting.round,
+                ts: Date.now(),
+              }
+              await appendUtterance(stateRoot, meetingId, utterance)
+              return ok<{ id: string; ts: number }>({ id: utterance.id, ts: utterance.ts })
             })
           }
           case 'roundtable/models.list': {

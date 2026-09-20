@@ -1,0 +1,329 @@
+/* ChatView — QQ 群聊形态的会议发言视图。
+ *
+ * 独立模块，**不并入** RoundTableView.module.css：那边的 216 个类是拓扑视图的
+ * 语言，两者没有共享的可变状态，合在一起只会让"改群聊碰到拓扑"成为可能。
+ * 色值一律走宿主 CSS 变量（--dsw-alias-*），跟随主题明暗，不写死颜色。
+ */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* ---------- 群头（QQ 群聊顶栏） ---------- */
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-l2);
+  flex: none;
+}
+
+.groupAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #4d6bfe, #7a4dff);
+  user-select: none;
+}
+
+.groupMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.groupName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-alias-text-l1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.groupSub {
+  font-size: 11px;
+  color: var(--dsw-alias-text-l3);
+}
+
+.groupSpacer {
+  flex: 1;
+}
+
+/* ---------- 消息流 ---------- */
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--dsw-alias-text-l3);
+}
+
+.emptyTitle {
+  font-size: 13px;
+  color: var(--dsw-alias-text-l2);
+}
+
+.emptyHint {
+  font-size: 12px;
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+.loading,
+.loadFailed {
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--dsw-alias-text-l3);
+}
+
+.loadFailed {
+  color: var(--dsw-alias-text-danger, #d9534f);
+}
+
+.truncated {
+  align-self: center;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--dsw-alias-text-l3);
+  background: var(--dsw-alias-bg-l2);
+}
+
+.divider {
+  align-self: center;
+  margin: 12px 0 8px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-text-l3);
+  background: var(--dsw-alias-bg-l2);
+}
+
+/* 一条消息 = 头像 + 气泡列（QQ 的左右分栏） */
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 82%;
+}
+
+.rowOther {
+  align-self: flex-start;
+}
+
+.rowMine {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.rowMerged {
+  margin-top: -2px;
+}
+
+/* 连续同人：占位保持气泡左/右对齐不塌 */
+.avatarSlot {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.bubbleCol {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bubbleColMine {
+  align-items: flex-end;
+}
+
+.senderLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-text-l3);
+}
+
+.senderName {
+  font-weight: 600;
+  color: var(--dsw-alias-text-l2);
+}
+
+.senderTag {
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 15px;
+  color: #fff;
+  background: #4d6bfe;
+}
+
+.senderTime {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 气泡本体：QQ 的圆角 + 尾巴没做（CSS 三角在窄气泡上会歪），
+   靠不对称圆角把说话方向表达清楚。 */
+.bubble {
+  padding: 7px 11px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.62;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-text-l1);
+  background: var(--dsw-alias-bg-l2);
+  border-top-left-radius: 3px;
+}
+
+.bubbleMine {
+  background: #4d6bfe;
+  color: #fff;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 3px;
+}
+
+.bubbleCaptain {
+  background: var(--dsw-alias-bg-l3);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.bubbleMeta {
+  display: flex;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dsw-alias-text-l3);
+}
+
+.bubbleMetaRight {
+  justify-content: flex-end;
+}
+
+/* 发言者头像：品牌 logo 或缩写 */
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  user-select: none;
+}
+
+.avatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatarAbbr {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatarLight .avatarAbbr {
+  color: #16181d;
+}
+
+/* ---------- 输入条 ---------- */
+
+.composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-l2);
+}
+
+.input {
+  flex: 1;
+  min-height: 34px;
+  max-height: 120px;
+  resize: none;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-text-l1);
+  background: var(--dsw-alias-bg-base);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.sendButton {
+  flex: none;
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  cursor: pointer;
+}
+
+.sendButton:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.sendButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

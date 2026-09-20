@@ -148,6 +148,42 @@ C:\Users\lk\.dsh\profiles\web\node_modules\dsh-plugin-roundtable
 **落点**：`src/dispatch.ts`、`src/charter.ts`、`src/tools.ts`、`test/dispatch.test.mjs`（+4 → 62）、
 `test/dispatch-ui.test.mjs`（+2 → 9）、`test/persona.test.mjs`（A3 精确化）。
 
+### 8. 圆桌讨论模式（E 功能：两个入口，一个状态）—— 新增
+
+**诉求（用户原话）**：① 在「圆桌会议」窗口内发消息默认就是圆桌讨论模式；② 插件自带一个
+斜杠命令，用命令即开启该模式。
+
+**做法**：会话级状态表 `src/mode.ts`，**一个有效值、两个来源标记**（这是全部要害）：
+
+| 来源 | 谁写 | 何时写 |
+|---|---|---|
+| `auto` | 浏览器（`RoundTableView` 挂载/卸载的 effect） | 打开该 tab = 开，切走/关页 = 关 |
+| `manual` | `/roundtable` 命令（host `commands` 注册） | 敲命令开/关 |
+
+`active = auto \|\| manual`；**两者互不覆盖** —— tab 切走只撤 `auto`，命令开的模式仍生效。
+`/roundtable off` 是唯一例外：它两份一起撤（否则用户敲了 off 而 tab 还开着，会看到"没变化"的假反馈）。
+
+**模式的全部作用机制是一段条件化的 system prompt 段**（`roundtable:mode`，`order = 116 + 1`）：
+按会话求值，开着时注入"本条消息按圆桌会议处理"，关闭返回空串。工具目录不变（请求缓存形状稳定，
+与宿主 plan-mode 同一取舍）。尾部输入分类：裸调用=开、`off`/`关`=关、其余非空文本当**议题**
+（开模式 + `agent.steer` 转交主持人，一次性启动会议）。
+
+**边界（写清楚，别把机制当现状）**：状态是**进程内内存**，不落盘 —— DSH 重启或插件热重载后清零；
+自愈路径是重新打开 tab，或再敲一次 `/roundtable`。因此徽章显示的是 **host 回包的真值**（`mode.get`
+轮询 5s），不是本地猜测；真值未到前不画徽章（不闪假状态）。
+
+**落点**：`src/mode.ts`（新，纯函数 + 状态表）、`src/index.ts`（命令注册 + 模式段）、
+`src/rpc.ts`（`mode.get` / `mode.set`；`RoundTableRuntime.mode?` 可选字段）、
+`src/client/{RoundTableView.tsx,wire.ts,locales.ts,RoundTableView.module.css}`、
+`test/discussion-mode.test.mjs`（新，12 例：语义 7 + 接线守卫 5）。
+
+**顺带修的坑（本条最该记的）**：为拿 `ctx.commands` 的类型，一度在本目录跑了裸
+`npm install @deepseek-ai/dsh-commands` —— 它按 `package.json` **重算了依赖树，把 17 个 peer
+junction 全换成实体副本**（rc.2，与宿主的 rc.1 脱钩），并留下 `node_modules/.package-lock.json`。
+修复：36 个 `@deepseek-ai/*` 目录按维护纪律那套 `mklink /J` 重建回 junction，删掉
+`node_modules/.package-lock.json`，`git checkout -- package-lock.json`（本仓 lock 早已脱节，不参与构建）。
+**结论：本仓加 devDependency 只能手改 `package.json`，绝不再跑裸 `npm install`。**
+
 ## 二、改动落在哪些文件
 | 文件 | 改动 |
 |---|---|
@@ -172,21 +208,33 @@ C:\Users\lk\.dsh\profiles\web\node_modules\dsh-plugin-roundtable
 | `src/tools.ts` (R-C) | `roundtable_send_message` 支持 `to="all"`；导出纯函数 `broadcastRecipients`（W4） |
 | `test/broadcast.test.mjs` (R-C) | 新建 4 例（广播受众集合 / 空名册边界） |
 | `test/persona.test.mjs` (R-C) | +4 例（rosterHint 三分支 / welcome 分叉 / 查册收尾句 / charter 快照声明） |
+| `src/mode.ts` (E) | 新：`SessionModeTable`（两来源互不覆盖）/ `parseModeCommand` / `runModeCommand` / `modeSectionText` |
+| `src/index.ts` (E) | `/roundtable` 命令注册（`ctx.inject(['commands'])`）+ `roundtable:mode` 条件段 + `runtime.mode` 接线 |
+| `src/rpc.ts` (E) | `roundtable/mode.get`、`roundtable/mode.set`（输入校验：空 sessionId / 非布尔 active 一律拒绝） |
+| `src/client/RoundTableView.tsx` (E) | 挂载/卸载 effect 写 `auto`（cleanup 用 `alive` 标志丢掉晚到回包）+ 5s 轮询 `mode.get` + 头部模式徽章 |
+| `src/client/{wire,locales}.ts` (E) | `WireModeState`；5 个文案键（zh/en 各一份） |
+| `test/discussion-mode.test.mjs` (E) | 新：12 例 |
 
-## 三、当前状态（2026-09-19 19:50 实测，R-D 收尾批次落地后）
+## 三、当前状态（2026-09-20 实测，E 功能「圆桌讨论模式」落地后）
 
-- 版本 `0.2.44`（package.json 与 src/version.ts 逐字一致闸门通过）
-- `tsc` host + client **双端 0 错误**；`node --test` 逐文件跑 **241/241 全绿**（22 个文件）
-- **反验收（变异测试，逐条对应）**：① 圆桌制对账退回只认主持人 → 两例红 ② `planned_owners`
-  停止渲染 → `R-D-UI ⑧` 红 ③ 删 charter 的"不使用"声明 → `persona A3` + `R-D-UI 9` 两例红。
-  全部随后恢复复绿
-- **运行态实测**（真 egalitarian 会议，2 真预设席位，验完即删）：`impl` 实发 `arch` 直达后
-  快照 `undispatchedOwners` 为空（修复前 `["impl"]`）；`planned owners (seat level): arch, impl`
-  已在 status 渲染；`outOfScope` 圆桌制恒 0 条
+- 版本 `0.2.45`（package.json 与 src/version.ts 逐字一致闸门通过）
+- `tsc` host + client **双端 0 错误**；`node --test` **273/273 全绿**（23 个文件）
+- **运行态实测（E 功能）**：RPC 探针六种输入全符合预期 —— `mode.set(true)` → `active:true`；
+  `mode.get` 回读一致；`set(false)` 归零；空 `sessionId` 与 `active:"yes"` 各自被拒（不写垃圾键）。
+  斜杠命令清单实测 8 条，第 7 位即 `roundtable`，描述与输入提示逐字一致（`compact/export/feedback/
+  goal/permission/plan/roundtable/scnote`）；热重载后复跑，命令与端点均保持不变
+- **接线守卫**（`test/discussion-mode.test.mjs`）：host 真注册了 `/roundtable`、提示词段真按会话条件化、
+  客户端挂载/卸载真写 `auto` 且徽章读 host 真值、RPC 两端点存在且校验输入、`mode?` 可选字段真被接线
+- **反验收（变异实测，九组全红）**：M1–M4 打语义层、W1–W5 打接线层。其中 **W1/W3 首轮是 fail=0 的假绿**
+  （W1：注释里含同一字符串，断言匹配到了注释；W3：只查"文件里出现过 active:false"，被挂载路径那次冒充），
+  已就地修强：新增 `stripLineComments` + cleanup 切片内断言。⚠ 变异脚本**不要用 `Set-Content` 回写**源文件
+  （会把 UTF-8 中文写成 ANSI，实测把 `src/index.ts` 写坏、read 直接报 `invalid UTF-8`）
+- **环境修复**：36 个 `@deepseek-ai/*` peer 目录重建回 junction（原被裸 `npm install` 换成 rc.2 实体副本，
+  与宿主 rc.1 脱钩）；`node_modules/.package-lock.json` 已删；`package-lock.json` 已还原
+- 历史快照：R-C（0.2.36 / 100 例）、R-D host 侧（0.2.42 / 217 例）、R-D-UI（0.2.43 / 235 例）、
+  R-D 收尾（0.2.44 / 241 例）—— 均已被上文取代，留作基线对照
 - **接线审计**：快照 `plan` 8 字段、`talentPool` 2 字段、`buildRoundSignals` 13 字段 —— **逐个**有消费者
 - 部署链：`profiles/web/node_modules/dsh-plugin-roundtable` → junction → 本目录
-- 历史快照：R-C（0.2.36 / 100 例）、R-D host 侧（0.2.42 / 217 例）、R-D-UI（0.2.43 / 235 例）——
-  均已被上文取代，留作基线对照
 
 ## 四、维护纪律
 
@@ -217,6 +265,41 @@ node node_modules\tsdown\dist\run.mjs -c tsdown.config.ts
 2. **别用裸 `npm install` 装别的依赖**：会按 `package.json` 重算依赖树，
    可能把 17 个 peer junction 换成实体包（体积暴涨且与宿主版本脱钩）。
    只装构建工具时用：`npm install --no-save --no-package-lock --cache .npm-cache <pkg>`。
+   ⚠ **2026-09-20 实测：这个坑已经真的踩过一次** —— 为加一个 devDependency 跑了裸
+   `npm install @deepseek-ai/dsh-commands`，36 个 `@deepseek-ai/*` 目录全部被换成实体副本
+   （rc.2，宿主是 rc.1），并生成 `node_modules/.package-lock.json`。**加 devDependency 只手改
+   `package.json` 三处（peer / peerMeta / devDeps）**，不跑 npm install。
+
+3. **别用 `Set-Content` 回写 `src/` 下的源文件**（做变异测试/批量替换时最容易犯）：
+   PowerShell 默认按 ANSI 落盘，`src/index.ts` 的中文实测被写坏（33138 → 33016 字节，
+   read 工具报 `invalid UTF-8`）。要么只走 editor 工具，要么显式 `-Encoding utf8` 并改后回读核对。
+
+4. **改动不生效时，第一件事是查部署链是不是还指着本目录**（本仓最隐蔽的一类故障）：
+   `profiles/web/node_modules/dsh-plugin-roundtable` 是**自动装配出来的**，只要跑过一次裸
+   `npm install`（见第 2 条）或 `pnpm install`，就**可能从 junction 退化成实体副本**。
+   退化后你改本目录，运行时装载的却是那份冻结的旧副本 —— 症状极具误导性：
+   **产物里明明有这段代码（grep 得到），接口却报 `unknown endpoint`**，看起来像"代码写错了"。
+
+   ⚠ **2026-09-20 实测踩到**：加完 `mode.get` / `mode.set` 两个端点后，`lib/index.js` 里两个
+   `case` 都在，但接口一直回 `unknown endpoint: roundtable/mode.get`；同时 `prefs.get` 等**旧端点
+   正常**（因为旧副本也有它们）—— 这个"新端点全废、老端点照常"的组合正是退化的指纹。
+
+   现场取证（两条命令足够定性）：
+   ```powershell
+   $a = 'C:\Users\lk\.dsh\profiles\web\node_modules\dsh-plugin-roundtable'
+   # ① 是不是 reparse point：报 'not a reparse point' = 实体副本（退化）
+   cmd /c "fsutil reparsepoint query `"$a`" 2>&1"
+   # ② 字节比对：与项目产物不一致 = 装载的不是你改的那份
+   (Get-FileHash "$a\lib\index.js").Hash -eq (Get-FileHash 'D:\lk\FF\dsh-plugin-roundtable\lib\index.js').Hash
+   ```
+   修复（先留档再重建，切勿直接删）：
+   ```powershell
+   $p = 'C:\Users\lk\.dsh\profiles\web\node_modules'
+   Rename-Item "$p\dsh-plugin-roundtable" "$p\dsh-plugin-roundtable.bak-entity-$(Get-Date -Format yyyyMMdd-HHmmss)"
+   cmd /c mklink /J "$p\dsh-plugin-roundtable" "D:\lk\FF\dsh-plugin-roundtable"
+   ```
+   最后**必须热重载 + 调一次端点**才算完（`dev_reload_package roundtable`）；只看 `git status` 或
+   grep 产物**不算验证**——那正是这次误判成"代码问题"的起因。
 
 ### node_modules 说明（可重建，不必联网装 peer）
 
@@ -238,13 +321,26 @@ npm install --no-save --no-package-lock --cache .npm-cache typescript@5.9.2 tsdo
 
 ## 五、备份留档（旧目录产物，可删）
 
-| 位置 | 内容 |
-|---|---|
-| `C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable.bak-migrate-20260917-163419` | 迁移前的部署副本（实体） |
-| `C:\Users\lk\.dsh\profiles\web\package.json.bak-migrate-20260917-163334` | 改指向前的 profile 清单 |
-| `D:\lk\deepseek\plugins\dsh-plugin-roundtable-main` | **旧源目录（已停用）**，保留 `lib.bak-pre-RA-*` 与 `.npm-cache`（103 MB）可清 |
-| `D:\lk\FF\.roundtable\role-presets-self-review\export.md` | 自审会议记录（60 KB） |
-| `D:\lk\FF\.rt-self-review\` | 自审的四份证据材料 |
+> **2026-09-20 清算**：本节所列多项**实测已不存在**，逐项复核结果如下（`Test-Path` 直出）。
+> 保留此表是为了记住"哪些曾存在、为什么可删"，而不是当作现存清单。
+
+| 位置 | 内容 | 2026-09-20 复核 |
+|---|---|---|
+| `C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable.bak-migrate-20260917-163419` | 迁移前的部署副本（实体） | **已删**（4.02 MB，旧包名 `@huanlin/*` 时代残留，不在装配链上） |
+| `C:\Users\lk\.dsh\profiles\web\node_modules\@huanlin\dsh-plugin-roundtable.bak-copy-drift-20260919` | 副本漂移备份（实体） | **已删**（73.68 MB，同上） |
+| `C:\Users\lk\.dsh\profiles\web\package.json.bak-migrate-20260917-163334` | 改指向前的 profile 清单 | 仍在（1.6 KB，成本可忽略） |
+| `D:\lk\deepseek\plugins\dsh-plugin-roundtable-main` | **旧源目录（已停用）** | **本就不存在**——文档曾记「保留 `lib.bak-pre-RA-*` 与 `.npm-cache`（103 MB）可清」，实测目录早已清掉，此条是过时记录 |
+| `D:\lk\FF\.roundtable\role-presets-self-review\export.md` | 自审会议记录 | 仍在（属会议数据，**不动**） |
+| `D:\lk\FF\.rt-self-review\` | 自审的四份证据材料 | 仍在（4 份，**不动**） |
+
+### 本仓内已清（2026-09-20）
+
+| 位置 | 内容 | 判据 |
+|---|---|---|
+| `.npm-cache/` | 本地构建缓存（**103.34 MB**） | 本仓 `.gitignore:10` 自己写明「可达 100 MB+」；重装构建工具时会按需重建：`npm install --no-save --no-package-lock --cache .npm-cache <pkg>` |
+| `tset/word.txt` | `test` 的**误拼目录**，内容仅 `1223` | 顶层 `test/` 下无同名文件；已 `git rm` 从版本库摘除 |
+| `src/members.ts.bak-allowlist-20260917-132322` | 旧版 `members.ts`（284 行 vs 现行 321 行） | 全仓源码/测试/脚本**零引用**（grep 确认）；已 `git rm` |
+| `test/.render-tmp/` | 渲染测试临时产物目录（当时为空） | `.gitignore:15` 已忽略，下次跑测试会自建 |
 
 ## 六、包名与发布链路（2026-09-20 变更）
 
@@ -258,6 +354,10 @@ npm install --no-save --no-package-lock --cache .npm-cache typescript@5.9.2 tsdo
 - **junction**：`profiles/web/node_modules/dsh-plugin-roundtable` → 本目录。
   旧名 `node_modules/@huanlin/dsh-plugin-roundtable` 的 junction **保留作运行期兼容垫片**
   （当前进程仍按旧名解析）；确认新版运行正常并**重启 DSH** 后可删。
+  > **2026-09-20 复核**：`@huanlin/` 下已无活 junction，只剩两个 `.bak-*` 实体备份，
+  > 均已删除（77.7 MB）。当前 `profiles/web/node_modules/dsh-plugin-roundtable` 已是
+  > **Junction → `D:\lk\FF\dsh-plugin-roundtable`**（`LinkType=Junction` 实测），
+  > 改源码后构建即被宿主读到，**不需要再手工复制 `lib/`**。
 - **发布链路已拆**：删除 `.github/workflows/publish.yml`（GitHub Actions 发布工作流）、
   远端 Release 与 tag v0.2.45、仓内上游快照 `.upstream/roundtable-v0.2.35-upstream.tar.gz`。
   **本仓不发 npm、不打 Release**；`release-notes/` 仅作变更记录留存。

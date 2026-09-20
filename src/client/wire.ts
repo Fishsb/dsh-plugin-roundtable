@@ -244,6 +244,27 @@ export interface WireUtterance {
   round: number
 }
 
+/** 群聊窗口的一条消息（`roundtable/transcript.list` 的元素）。
+ *
+ *  **不裁剪正文** —— 与快照里的 `recent`（`compactText(...,90)`）刻意区分：
+ *  群聊要给人看完整的话，`recent` 只够做一行时间轴。
+ *  与 host `MeetingUtterance` 逐字对应（`from` ← `nodeKey`）。 */
+export interface WireChatMessage {
+  id: string
+  /** 发言者：专家 key 或 `captain`（主持人/用户同一身份位）。 */
+  from: string
+  /** 定向收件人；空串 = 提交给汇聚网关。 */
+  to: string
+  kind: string
+  text: string
+  /** 工作项 id（R-D）；空串 = 不属于任何工作项。 */
+  workItem: string
+  /** `user` = 用户在群聊窗口里亲口说的（缺席 = 主持人/专家写下）。 */
+  source: string
+  round: number
+  ts: number
+}
+
 /** R-D-UI：本轮调度计划（波次 + 对账），快照携带，拓扑页「调度」面板数据源。 */
 export interface WirePlanItem {
   id: string
@@ -323,6 +344,55 @@ export interface WireRolePreset {
   model?: string
   /** 可选思考强度（宿主档位 id，如 `high`）；空 = 继承主持人。 */
   reasoningEffort?: string
+}
+
+/** `roundtable/mode.get` / `mode.set` 的响应：会话级讨论模式三态读数。 */
+export interface WireModeState {
+  /** 有效值（`auto || manual`）—— UI 只看这一个。 */
+  active: boolean
+  /** tab 那一份（本视图挂载/卸载写入）。 */
+  auto: boolean
+  /** 命令那一份（`/roundtable` 写入）。 */
+  manual: boolean
+}
+
+/**
+ * 拉取某会议的全量发言（群聊窗口数据源）。
+ *
+ * 按需端点，**不进 1Hz 轮询**：`since`（ts 下界）用于增量补齐，`limit` 由 host
+ * 夹取到 [1, 1000]，默认 200。
+ */
+export async function fetchTranscript(
+  rpc: RpcCaller,
+  meetingId: string,
+  options: { since?: number; limit?: number } = {},
+): Promise<WireChatMessage[]> {
+  const payload: { meetingId: string; since?: number; limit?: number } = { meetingId }
+  if (options.since !== undefined && options.since > 0) payload.since = options.since
+  if (options.limit !== undefined) payload.limit = options.limit
+  const envelope = await rpc<Array<{
+    id: string
+    nodeKey: string
+    kind: string
+    content: string
+    to?: string
+    workItem?: string
+    source?: string
+    round: number
+    ts: number
+  }>>('roundtable/transcript.list', payload)
+  if (!envelope.ok) throw new Error(envelope.error.message)
+  return envelope.value.map((utterance) => ({
+    id: utterance.id,
+    from: utterance.nodeKey,
+    to: utterance.to ?? '',
+    kind: utterance.kind,
+    text: utterance.content,
+    workItem: utterance.workItem ?? '',
+    source: utterance.source ?? '',
+    round: utterance.round,
+    ts: utterance.ts,
+  }))
 }
 
 export interface RoundTablePrefs {

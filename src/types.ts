@@ -101,6 +101,15 @@ export interface MeetingUtterance {
    * 等本来就不属于任何工作项）。
    */
   workItem?: string
+  /**
+   * 这条发言的**来源**：`user` = 用户在群聊窗口里亲自说的。
+   *
+   * 为什么需要它：`nodeKey` 只有 `captain` 一个身份位，用户在群聊里发言也走
+   * `captain` 身份（他就是主持人本人）。不加这个标记，主持人下一轮读 transcript
+   * 时**无法区分「用户亲口说的」与「我自己说的」**，会把用户的话当成自己的话，
+   * 长期产生归因错误。缺席 = 主持人/专家经由 `roundtable_speak` 写下。
+   */
+  source?: 'user'
   round: number
   ts: number
 }

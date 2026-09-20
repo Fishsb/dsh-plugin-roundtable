@@ -18,16 +18,23 @@ import z from '@deepseek-ai/schemastery'
 // Declaration merge only: makes ctx.llm, ctx.subagents and ctx.systemPrompt visible.
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-subagent'
-import type {} from '@deepseek-ai/dsh-system-prompt'
+// 值+类型：`AssembleContext` 给模式段取会话，`ctx.systemPrompt` 靠该包的 merge。
+import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
+// Declaration merge only: 给 `AssembleContext` 补上 `agent`（模式段的唯一输入面）。
+import type {} from '@deepseek-ai/dsh-agent'
 // Declaration merge only: makes ctx.userQuestions visible.
 import type {} from '@deepseek-ai/dsh-user-questions'
 // Declaration merge only: makes ctx.skills visible (R2: DSH 原生 skill 能力).
 import type {} from '@deepseek-ai/dsh-skill'
+// Declaration merge only: makes ctx.commands visible（斜杠命令 /roundtable）。
+import type {} from '@deepseek-ai/dsh-commands'
 import { registerRoundTableTools } from './tools.ts'
 import { collectMeetingSnapshots } from './snapshot.ts'
 import { registerRpc, RPC_ROUTE, type RoundTableRuntime } from './rpc.ts'
+import { SessionModeTable, modeSectionText, MODE_COMMAND_NAME, runModeCommand } from './mode.ts'
 import { setWorkspaceCandidates, workspaceCandidates } from './workspace-candidates.ts'
 import { join } from 'node:path'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const name = 'roundtable'
@@ -180,6 +187,22 @@ export function apply(ctx: Context, config: Config): void {
     text: usageSectionText(toolNames),
   })
 
+  // 会话级「圆桌讨论模式」状态表单例（进程内；见 mode.ts 的边界说明）。
+  const modeTable = new SessionModeTable()
+
+  // 模式生效时追加的一段（**按会话**求值：`assemble.agent` 是本次装配的 agent，
+  // 缺席（诊断装配）时恒空）。与上面那段的分工：usage 段常驻讲"怎么开会"，
+  // 这一段只在模式开着时讲"这条消息现在就按会议处理"。
+  ctx.systemPrompt.section({
+    name: 'roundtable:mode',
+    order: (config.promptSectionOrder ?? 116) + 1,
+    text: (assemble: AssembleContext) => {
+      const sessionId = String(assemble.agent?.session.id ?? '')
+      if (sessionId === '') return ''
+      return modeTable.isActive(sessionId) ? modeSectionText() : ''
+    },
+  })
+
   // Settings-backed runtime preferences (mode default, budget defaults, expert
   // answer limits). The cordis.yml config is the composition base; the user
   // layer wins. Settings are consumed by the client settings page (via RPC)
@@ -188,6 +211,7 @@ export function apply(ctx: Context, config: Config): void {
   const runtime: RoundTableRuntime = {
     scope: undefined,
     stateDir: resolved.stateDir,
+    mode: modeTable,
     fallbackPrefs: {
       defaultMode: resolved.defaultMode,
       maxRounds: 10,
@@ -380,5 +404,33 @@ export function apply(ctx: Context, config: Config): void {
       || WORKSPACE_KEYS.includes(serviceName as (typeof WORKSPACE_KEYS)[number])) {
       registerWebSurface()
     }
+  })
+
+  // 斜杠命令 `/roundtable`：开启/关闭会话级讨论模式。模式开着时本会话的每条
+  // 用户消息都按圆桌会议处理（`roundtable:mode` 提示词段负责说清这条契约）。
+  //
+  // 用 `ctx.inject(['commands'])` 挂载而非写进 inject 顶层：命令面缺席的组合
+  // （无头 profile）插件其余功能照常，只有这条命令不可用 —— 与 index.ts 里
+  // settings / webServer 两处的懒挂载同一套路。
+  ctx.inject(['commands'], (commandCtx) => {
+    commandCtx.effect(() => commandCtx.commands.register({
+      name: MODE_COMMAND_NAME,
+      description: '开启/关闭圆桌讨论模式（本会话的消息按圆桌会议处理）',
+      // 尾部输入：`off` 退模式；其余非空文本当作议题，开模式并转交主持人。
+      input: { hint: '[off|议题]' },
+      handler: (invocation) => {
+        const sessionId = String(invocation.agent.session.id)
+        const outcome = runModeCommand(modeTable, sessionId, invocation.rawInput)
+        if (outcome.steerText !== '') {
+          // 议题作为一条插件来源的用户消息转交主持人：空闲时它会开一个回合，
+          // 忙时在最近一个步骤边界插入（steer 的既定语义）。
+          invocation.agent.steer(createUserMessage({
+            content: [{ type: 'text', text: outcome.steerText }],
+            source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' },
+          }))
+        }
+        return { kind: 'success', text: outcome.text }
+      },
+    }), 'roundtable: /roundtable command')
   })
 }
