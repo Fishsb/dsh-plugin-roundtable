@@ -85,6 +85,62 @@ const mutations = {
     to: '',
     expect: '缺少 chatSend',
   },
+  11: {
+    name: '空状态内联一份自己的 textarea（输入框不再与群聊共用）',
+    file: 'src/client/RoundTableView.tsx',
+    from: '              <ChatComposer\n                t={translate}\n                sending={steerSending}\n                onSend={(text) => { void startMeeting(text) }}\n                placeholderKey="emptyInputPlaceholder"\n              />',
+    to: '              <textarea className={styles.input} />',
+    expect: '空状态块里内联了自己的 textarea',
+  },
+  12: {
+    name: '空状态改调 say 而不是 steer（会议还不存在却当会议发言发）',
+    file: 'src/client/RoundTableView.tsx',
+    from: 'await steerSession(rpc, String(sessionId), text)',
+    to: "await rpc('roundtable/say', { meetingId: '', text })",
+    expect: 'startMeeting 没有调用 steerSession',
+  },
+  13: {
+    name: 'steer 复用命令解析（"off" 会被当命令静默退模式）',
+    file: 'src/rpc.ts',
+    from: 'runtime.mode.set(sessionId, \'manual\', true)',
+    to: "runModeCommand(runtime.mode, sessionId, judged.text); runtime.mode.set(sessionId, 'manual', true)",
+    expect: 'steer 复用了命令解析',
+  },
+  14: {
+    name: 'steer 无活会话时假装成功（不报错）',
+    file: 'src/rpc.ts',
+    from: "            if (captain === undefined) {\n              // 会话没有活 agent（页面刚刷新、会话已归档…）：明确报错，不假装已送达。\n              return fail(`session \"${sessionId}\" has no live agent to steer`)\n            }",
+    to: '            if (captain === undefined) return ok({ active: true, auto: false, manual: true })',
+    expect: '缺少"无活会话"的显式失败',
+  },
+  15: {
+    name: 'ChatComposer 的 placeholderKey 失效（空状态显示群聊那份占位文案）',
+    file: 'src/client/ChatComposer.tsx',
+    from: "const placeholder = t(placeholderKey ?? 'chatInputPlaceholder')",
+    to: "const placeholder = t('chatInputPlaceholder')",
+    expect: '空状态占位文案没生效',
+  },
+  16: {
+    name: 'ChatComposer 的 disabled 不透传到 textarea（sending 时仍能重复提交）',
+    file: 'src/client/ChatComposer.tsx',
+    from: '        disabled={blocked}',
+    to: '        disabled={false}',
+    expect: '输入框没有禁用',
+  },
+  17: {
+    name: 'ChatComposer 空草稿也允许点发送（发空消息）',
+    file: 'src/client/ChatComposer.tsx',
+    from: '        disabled={blocked || draft.trim() === \'\'}',
+    to: '        disabled={blocked}',
+    expect: '空草稿时发送按钮没有被禁用',
+  },
+  18: {
+    name: 'hooks 挪到早退之后（无会议时少跑一个 hook，React 抛错）',
+    file: 'src/client/RoundTableView.tsx',
+    from: "  const modeLabel = meeting.mode === 'egalitarian'",
+    to: '  const [__probe] = useState(false)\n  const modeLabel = meeting.mode === \'egalitarian\'',
+    expect: '早退之后出现了 hooks',
+  },
 }
 
 const id = process.argv[2]

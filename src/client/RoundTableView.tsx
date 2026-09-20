@@ -18,11 +18,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { RpcCaller, WireChatMessage, WireEdge, WireKbListing, WireMeeting, WireModelCatalog, WireModeState, WireNode, WireProviderOption, WireRolePreset, WireUsage } from './wire.ts'
-import { fetchMeetings, fetchTranscript } from './wire.ts'
+import { fetchMeetings, fetchTranscript, steerSession } from './wire.ts'
 import { BRAND_LOGOS } from './brand-logos.generated.ts'
 import styles from './RoundTableView.module.css'
 import { DispatchPanel } from './DispatchPanel.tsx'
 import { ChatView } from './ChatView.tsx'
+import { ChatComposer } from './ChatComposer.tsx'
 
 export interface RoundTableViewInjected {
   rpc: RpcCaller
@@ -312,7 +313,11 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const [chatError, setChatError] = useState('')
   /** host 侧因 limit 截断了更早发言（提示用户"上面还有"）。 */
   const [chatTruncated, setChatTruncated] = useState(false)
+  /** 群聊发送中（禁用输入并防止重复提交）。 */
   const [chatSending, setChatSending] = useState(false)
+  /** 空状态输入框专用：把议题交给主持人开一场会议。 */
+  const [steerSending, setSteerSending] = useState(false)
+  const [steerError, setSteerError] = useState('')
   const containerRef = useRef<HTMLDivElement | null>(null)
   const hoverTimer = useRef<number | null>(null)
 
@@ -624,6 +629,27 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
       setChatSending(false)
     }
   }, [rpc, meeting?.id, chatSending, latestChatTs, mergeSince, translate])
+
+  /**
+   * 空状态窗口的输入框：把这句话交给主持人**开一场会议**。
+   *
+   * 与 `sendChat` 的分工：`sendChat` 要求会议已存在（往群里发言）；这里用在会议
+   * 还不存在时 —— host 侧会先把该会话标记为讨论模式，再 steer 给主持人，主持人
+   * 据此出设置卡片并拉起专家队伍。会议建好后由 1Hz 快照轮询自动带出来，前端
+   * 不需要"建完自己插一条"的乐观逻辑。
+   */
+  const startMeeting = useCallback(async (text: string): Promise<void> => {
+    if (steerSending) return
+    setSteerSending(true)
+    try {
+      await steerSession(rpc, String(sessionId), text)
+      setSteerError('')
+    } catch (error: unknown) {
+      setSteerError(translate('chatSendFailed').replace('{msg}', error instanceof Error ? error.message : String(error)))
+    } finally {
+      setSteerSending(false)
+    }
+  }, [rpc, sessionId, steerSending, translate])
 
   // E1：会议结束（status ended）且反馈开启、本会议尚未问过 → 弹轻量反馈。
   useEffect(() => {
@@ -1094,10 +1120,25 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
 
   if (meeting === undefined) {
     return (
-      <div className={styles.emptyState}>
-        <div className={styles.emptyTitle}>{translate('empty')}</div>
-        <div className={styles.emptyHint}>{translate('emptyHint')}</div>
-        {fetchFailed === true ? <div className={styles.fetchFailed}>{translate('fetchFailed')}</div> : null}
+      <div className={styles.root}>
+        <div className={styles.main}>
+          <div className={styles.emptyState}>
+            <div className={styles.emptyTitle}>{translate('empty')}</div>
+            <div className={styles.emptyHint}>{translate('emptyHint')}</div>
+            {/* 输入框与群聊窗口**是同一个组件**（用户要求）：在这里打字等于给
+                这个会话开一场会议 —— 语义与 `/roundtable <议题>` 一致。 */}
+            <div className={styles.emptyComposer}>
+              <ChatComposer
+                t={translate}
+                sending={steerSending}
+                onSend={(text) => { void startMeeting(text) }}
+                placeholderKey="emptyInputPlaceholder"
+              />
+            </div>
+            {steerError !== '' ? <div className={styles.fetchFailed}>{steerError}</div> : null}
+            {fetchFailed === true ? <div className={styles.fetchFailed}>{translate('fetchFailed')}</div> : null}
+          </div>
+        </div>
       </div>
     )
   }

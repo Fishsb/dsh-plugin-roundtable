@@ -913,6 +913,21 @@
   line-height: 1.6;
 }
 
+/* 空状态里的输入条：与群聊窗口共用同一个 `ChatComposer` 组件，这里只负责给
+   它一个合理的宽度并抹掉"页脚控件"的观感（去顶边线 / 去背景），让它读起来
+   像"就在这里开始"，而不是另一处独立入口。 */
+.emptyComposer {
+  width: 100%;
+  max-width: 520px;
+  margin-top: 6px;
+}
+
+.emptyComposer > div {
+  border-top: none;
+  background: transparent;
+  padding: 0;
+}
+
 .fetchFailed {
   font-size: 11px;
   color: #c62828;

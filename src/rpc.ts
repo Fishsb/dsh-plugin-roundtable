@@ -50,6 +50,8 @@ import { buildCharter } from './charter.ts'
 import { digestIsFresh } from './kb-digest.ts'
 import { agentTimingOfSnapshot, providerTokensOfSnapshot, providerUsageTotal } from './usage.ts'
 import type { SessionModeTable } from './mode.ts'
+import { steerCaptain } from './members.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** RPC result envelope (mirrors the apiproxy wire shape). */
 export type RpcResult<T> =
@@ -888,6 +890,46 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               }
               await appendUtterance(stateRoot, meetingId, utterance)
               return ok<{ id: string; ts: number }>({ id: utterance.id, ts: utterance.ts })
+            })
+          }
+          case 'roundtable/steer': {
+            // 「还没有会议」空状态窗口里的输入框：此时会议**还不存在**，这条消息
+            // 的作用不是发言，而是**开一场会议**。
+            //
+            // 语义与 `/roundtable <议题>` 斜杠命令完全一致（`src/index.ts` 的命令
+            // 处理器）：① 把该会话标记为讨论模式（`manual=true`）；② 用 steer 把
+            // 议题作为一条插件来源的用户消息交给主持人，主持人据此出设置卡片、
+            // 拉起专家队伍。
+            //
+            // 三条刻意的选择：
+            //   1. **复用 `steerCaptain`**（members.ts），不另写一条 steer 路径 ——
+            //      那是本插件唯一的主持人投递入口，复制一份必然漂移。
+            //   2. **不走 `runModeCommand`**：那个函数按斜杠命令语法解析，输入
+            //      `off` 会退模式而不转交（见 parseModeCommand）。输入框里打的
+            //      每个字都是**议题**，不能被当成命令 —— 否则用户想讨论"off 这个
+            //      关键字怎么处理"时会静默地把模式关掉。
+            //   3. **先置模式再 steer**：模式段是 system prompt 的一部分，顺序反了
+            //      就会出现"议题已转交但主持人不知道要按圆桌处理"的窗口。
+            const body = payload as { sessionId?: unknown; text?: unknown } | undefined
+            const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+            if (sessionId === '') return fail('payload must be { sessionId, text }')
+            const judged = normalizeSayText(body?.text)
+            if (!judged.ok) return fail(judged.reason)
+            if (runtime.mode === undefined) return fail('mode table is not mounted in this composition')
+            const captain = ctx.agents.get(sessionId as SessionId)
+            if (captain === undefined) {
+              // 会话没有活 agent（页面刚刷新、会话已归档…）：明确报错，不假装已送达。
+              return fail(`session "${sessionId}" has no live agent to steer`)
+            }
+            runtime.mode.set(sessionId, 'manual', true)
+            if (!steerCaptain(captain, judged.text)) {
+              return fail('the session rejected the message (steer failed)')
+            }
+            const state = runtime.mode.read(sessionId)
+            return ok<{ active: boolean; auto: boolean; manual: boolean }>({
+              active: state.auto || state.manual,
+              auto: state.auto,
+              manual: state.manual,
             })
           }
           case 'roundtable/models.list': {

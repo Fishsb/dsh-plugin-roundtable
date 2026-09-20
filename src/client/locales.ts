@@ -243,6 +243,7 @@ export type RoundTableKey =
   | 'chatRoundDivider'
   | 'chatToGateway'
   | 'chatToSeat'
+  | 'emptyInputPlaceholder'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -254,7 +255,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const zh: Record<RoundTableKey, string> = {
   tab: '圆桌会议',
   empty: '当前工作区还没有圆桌会议',
-  emptyHint: '回到聊天，说一句「开个圆桌会议讨论……」，主持人就会拉起一支专家队伍并出现在这里。历史会议会一直保留在这个 Tab 里，随时可以切换查看。',
+  emptyHint: '在下面的输入框里说一句议题，主持人就会拉起一支专家队伍并出现在这里；也可以回到聊天说「开个圆桌会议讨论……」。历史会议会一直保留在这个 Tab 里，随时可以切换查看。',
   meeting: '会议',
   mode: '协作模式',
   modeOrchestrated: '主持人统筹',
@@ -489,12 +490,13 @@ export const zh: Record<RoundTableKey, string> = {
   chatRoundDivider: '第 {n} 轮',
   chatToGateway: '→ 汇聚网关',
   chatToSeat: '→ {to}',
+  emptyInputPlaceholder: '说一句话，主持人就来开局…（Enter 发送）',
 }
 
 export const en: Record<RoundTableKey, string> = {
   tab: 'RoundTable',
   empty: 'No round-table meeting in this workspace yet',
-  emptyHint: 'Go back to chat and say "start a round-table meeting to discuss…" — the captain will assemble a team of experts right here. Past meetings stay in this tab and can be switched back to anytime.',
+  emptyHint: 'Type a topic in the box below and the captain will assemble a team of experts right here — or go back to chat and say "start a round-table meeting to discuss…". Past meetings stay in this tab and can be switched back to anytime.',
   meeting: 'Meeting',
   mode: 'Mode',
   modeOrchestrated: 'Orchestrated',
@@ -729,4 +731,5 @@ export const en: Record<RoundTableKey, string> = {
   chatRoundDivider: 'Round {n}',
   chatToGateway: '→ gateway',
   chatToSeat: '→ {to}',
+  emptyInputPlaceholder: 'Say something and the captain will start… (Enter to send)',
 }

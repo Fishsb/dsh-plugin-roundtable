@@ -207,6 +207,94 @@ test('客户端：群聊组件存在且不与拓扑共用样式模块', () => {
   assert.ok(!src.includes("key: 'aggregator'"), 'aggregator 被当成了群成员（它不是发言者）')
 })
 
+/* ------------------------------------------------------------------ *
+ * 4. 空状态输入框（与会话级开场）
+ * ------------------------------------------------------------------ */
+
+test('接线：空状态与群聊窗口**共用同一个输入框组件**（不得各写一份）', () => {
+  const empty = deComment(read('../src/client/RoundTableView.tsx'))
+  const chat = deComment(read('../src/client/ChatView.tsx'))
+  // 两处都必须出现 ChatComposer —— 用户的要求就是"那个输入框也就是群聊窗口的输入框"，
+  // 复制一份会在下一次改动时立刻漂移。
+  assert.ok(empty.includes('<ChatComposer'), '空状态没有用共享的 ChatComposer')
+  assert.ok(chat.includes('<ChatComposer'), '群聊窗口没有用共享的 ChatComposer')
+  // 群聊窗口里不得再内联 textarea（内联即第二份实现）。
+  assert.ok(!chat.includes('<textarea'), '群聊窗口里内联了自己的 textarea')
+  // 空状态**块内**不得内联 textarea。
+  // ⚠ 范围必须收窄到那个 early-return 块：RoundTableView 另有合法的 textarea
+  // （反馈备注、驳回理由），全文件断言会误报 —— 本守卫第一版就是这么假红的。
+  const at = empty.indexOf('if (meeting === undefined)')
+  const end = empty.indexOf('const modeLabel =', at)
+  assert.ok(at > 0 && end > at, '找不到空状态块')
+  assert.ok(!empty.slice(at, end).includes('<textarea'), '空状态块里内联了自己的 textarea')
+})
+
+test('接线：空状态的发送走 steer（会议还不存在），不是 say', () => {
+  const src = deComment(read('../src/client/RoundTableView.tsx'))
+  const at = src.indexOf('const startMeeting = useCallback')
+  assert.ok(at > 0, '找不到 startMeeting')
+  const body = src.slice(at, src.indexOf('}, [rpc, sessionId, steerSending, translate])', at))
+  assert.ok(body.includes('steerSession('), 'startMeeting 没有调用 steerSession')
+  assert.ok(!body.includes("'roundtable/say'"), 'startMeeting 误用了 say（会议此刻还不存在）')
+})
+
+test('接线：hooks 全部在 `meeting === undefined` 早退之前（否则两次渲染 hooks 数不同）', () => {
+  const src = deComment(read('../src/client/RoundTableView.tsx'))
+  const at = src.indexOf('if (meeting === undefined) {')
+  assert.ok(at > 0, '找不到早退分支')
+  // 无会议与有会议是**同一个组件的两次渲染**：早退之后若再出现 hook，两次渲染的
+  // hooks 数量就不同，React 会在切到下一个会议时直接抛错（rules-of-hooks 违规）。
+  // 这是加了空状态输入框之后新引入的风险点，故钉住。
+  //
+  // ⚠ 正则必须同时覆盖**裸调用**与**赋值式调用**两种写法：
+  //   裸：`useEffect(() => ...)`
+  //   赋值：`const [x, setX] = useState(false)` / `const f = useCallback(...)`
+  // 只写 `^\s*useState\(` 会**恒不命中**（本仓代码风格永远是赋值式），
+  // 于是这条断言永远绿 —— 第一版就是这样，由 test/mutate.mjs 的变异 18 实证。
+  const after = src.slice(at)
+  const offenders = after.match(/(?:\b(?:const|let|var)\s+[^\n=]+\=\s*|\b)(useState|useEffect|useMemo|useCallback|useRef)\s*\(/g)
+  assert.equal(offenders, null, `早退之后出现了 hooks：${String(offenders)}`)
+  // 另外：steer 用的状态与回调必须在早退之前就已声明（否则渲染时是 undefined）。
+  assert.ok(src.indexOf('const [steerSending') < at, 'steerSending 声明在早退之后')
+  assert.ok(src.indexOf('const startMeeting = useCallback') < at, 'startMeeting 声明在早退之后')
+})
+
+test('接线：steer 端点在 host 侧注册、走 mode 表 + steerCaptain，且不解析命令语法', () => {
+  const src = deComment(read('../src/rpc.ts'))
+  const at = src.indexOf("case 'roundtable/steer'")
+  assert.ok(at > 0, 'steer 端点未注册')
+  const next = src.indexOf('case \'', at + 10)
+  const body = src.slice(at, next > 0 ? next : src.length)
+  assert.ok(body.includes('runtime.mode.set(sessionId, \'manual\', true)'), 'steer 没有置讨论模式')
+  assert.ok(body.includes('steerCaptain('), 'steer 没有走既有的主持人投递入口')
+  // 关键反例：不得复用 runModeCommand —— 它会把 "off" 当命令退模式，
+  // 而输入框里打的每个字都是议题。
+  assert.ok(!body.includes('runModeCommand('), 'steer 复用了命令解析（"off" 会被误当命令）')
+  assert.ok(!body.includes('parseModeCommand('), 'steer 复用了命令解析')
+  // 没有活 agent 时必须明确失败，不得假装已送达。
+  assert.ok(body.includes('has no live agent'), '缺少"无活会话"的显式失败')
+})
+
+test('接线：客户端真的引用了 steerSession（不是只定义了没人调）', () => {
+  const empty = deComment(read('../src/client/RoundTableView.tsx'))
+  assert.match(empty, /from '\.\/wire\.ts'/, 'RoundTableView 未从 wire 导入')
+  assert.ok(empty.includes('steerSession'), 'RoundTableView 没有引用 steerSession')
+  const wire = deComment(read('../src/client/wire.ts'))
+  assert.ok(wire.includes("'roundtable/steer'"), 'wire.ts 没有 steer 的调用点')
+})
+
+test('语言字典：中英两份键集逐字一致（缺一条会让另一种语言显示键名）', async () => {
+  const { zh, en } = await import('../src/client/locales.ts')
+  const zhKeys = Object.keys(zh).sort()
+  const enKeys = Object.keys(en).sort()
+  assert.deepEqual(enKeys, zhKeys)
+  // 群聊新增键必须两份都在。
+  for (const key of ['viewTopology', 'viewChat', 'chatSend', 'chatYou', 'chatRoundDivider', 'emptyInputPlaceholder']) {
+    assert.ok(zhKeys.includes(key), `zh 缺少 ${key}`)
+    assert.ok(enKeys.includes(key), `en 缺少 ${key}`)
+  }
+})
+
 test('客户端：切回拓扑时重新测量画布（旧 observers 不跟卸载的 DOM）', () => {
   const src = deComment(read('../src/client/RoundTableView.tsx'))
   // ResizeObserver 所在 effect 的依赖数组必须含 view。

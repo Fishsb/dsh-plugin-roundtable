@@ -5,7 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B-blue" alt="DeepSeek Harness 0.1.5-rc.1+"></a>
-  <img src="https://img.shields.io/badge/version-v0.2.47-blue" alt="v0.2.47">
+  <img src="https://img.shields.io/badge/version-v0.2.48-blue" alt="v0.2.48">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
   <img src="https://img.shields.io/github/commit-activity/m/Fishsb/dsh-plugin-roundtable" alt="commit activity">
 </p>
@@ -32,6 +32,7 @@
 
 - 🪑 **左主持 + 右圆桌拓扑** — 会话视图新增「圆桌会议」Tab：主持人锚点、环形专家节点、中央汇聚网关，连线带方向箭头，全程可视化
 - 💬 **群聊视图（v0.2.47）** — 同一 Tab 内一键切换「拓扑 / 群聊」：会议发言以 QQ 群聊形态展示（气泡、品牌头像、连续同人合并、轮次分隔），底部输入框可**以主持人身份直接说话**（落盘标 `source: user`，主持人下轮能分辨是谁说的）；拓扑视图与右栏面板完全不受影响
+- ⌨️ **空状态就地开局（v0.2.48）** — 「还没有圆桌会议」那一屏也有**同一个**输入框：说一句议题，主持人当场拉起专家队伍（等价于 `/roundtable <议题>`），不必再回聊天窗口绕一圈
 - 🎯 **圆桌讨论模式（e 功能）** — 两个入口同一个状态：**打开「圆桌会议」Tab** 或敲 **`/roundtable`**，本会话之后发的每条消息都按圆桌会议处理；`/roundtable off` 或切走 Tab 关闭
 - 🧩 **持久子代理专家** — 每位专家都是独立可续聊的子代理，带《全局协作总纲》（目标 / 角色边界 / 协作协议 / 安全红线）入会
 - 🔗 **可视化连线** — 悬停拖拽「＋」拉线，右键切换单向/双向或删除，双向通道两端各有一个箭头
@@ -223,6 +224,7 @@ Profile 可覆盖（默认开箱即用）：
 > 视图切换状态**不落盘**（与讨论模式同理）：这是"此刻在看什么"的交互意图，不是配置。
 > 群聊只显示已有发言；**原话完整呈现**（快照轮询里那份 20 条 / 90 字截断的是侧栏时间轴，不是群聊）。
 > 输入框发出的消息落成 `nodeKey=captain` + `source=user` 的一条发言，**不计入会议预算**（用户发言不消耗专家轮次与 token）。
+> **还没有会议时**，那一屏的输入框用的是同一个组件，但语义不同：它把议题交给主持人**开一场会议**（等价 `/roundtable <议题>`），而不是往某个会议里发言。
 
 > 模式的**有效值 = tab 来源 ∨ 命令来源**，两者互不覆盖：切走 Tab 只撤自己那一份，命令开的模式仍生效。
 > 状态是进程内存储，**重启 DSH 或热重载插件后清零** —— 重新打开 Tab 或再敲一次 `/roundtable` 即可。

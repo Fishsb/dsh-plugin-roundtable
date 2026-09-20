@@ -15,8 +15,9 @@
  * @module dsh-plugin-roundtable/client/ChatView
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { WireChatMessage, WireMeeting, WireNode } from './wire.ts'
+import { ChatComposer } from './ChatComposer.tsx'
 import styles from './ChatView.module.css'
 
 export interface ChatViewBrand {
@@ -72,7 +73,6 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   const streamRef = useRef<HTMLDivElement | null>(null)
   /** 用户是否停在底部。默认 true；一旦上翻即置 false，滚回底部再置 true。 */
   const stickToBottom = useRef(true)
-  const [draft, setDraft] = useState('')
 
   // 成员表：主持人 + 未移除的专家。刻意把 `captain` 放第一位 —— 它是会议的信息枢纽。
   const members = useMemo((): Member[] => {
@@ -115,20 +115,6 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     if (element === null) return
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight
     stickToBottom.current = distance <= STICKY_BOTTOM_PX
-  }
-
-  const submit = (): void => {
-    const text = draft.trim()
-    if (text === '' || sending) return
-    onSend(text)
-    setDraft('')
-  }
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Enter 发送、Shift+Enter 换行 —— 与聊天窗口一致的肌肉记忆。
-    if (event.key !== 'Enter' || event.shiftKey) return
-    event.preventDefault()
-    submit()
   }
 
   /** 渲染一条消息，并判断它是否是"合并"（与上一条同人且时间接近）。 */
@@ -237,26 +223,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         {messages.map(renderMessage)}
       </div>
 
-      <div className={styles.composer}>
-        <textarea
-          className={styles.input}
-          value={draft}
-          placeholder={t('chatInputPlaceholder')}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={sending}
-          rows={1}
-          aria-label={t('chatInputPlaceholder')}
-        />
-        <button
-          type="button"
-          className={styles.sendButton}
-          onClick={submit}
-          disabled={sending || draft.trim() === ''}
-        >
-          {sending ? t('chatSending') : t('chatSend')}
-        </button>
-      </div>
+      <ChatComposer t={t} sending={sending} onSend={onSend} />
     </div>
   )
 }

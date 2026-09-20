@@ -357,6 +357,25 @@ export interface WireModeState {
 }
 
 /**
+ * 空状态窗口的输入框：把议题交给主持人**开一场会议**。
+ *
+ * 与群聊窗口的 `say` 分工明确 —— `say` 要求会议已存在（往里面发言），
+ * `steer` 用于会议**还不存在**时（这条消息用来开场）。host 侧会先把该会话
+ * 标记为讨论模式，再 steer 给主持人。
+ *
+ * 返回讨论模式三态，让调用方能据此点亮徽章（不是本地猜测）。
+ */
+export async function steerSession(
+  rpc: RpcCaller,
+  sessionId: string,
+  text: string,
+): Promise<WireModeState> {
+  const envelope = await rpc<WireModeState>('roundtable/steer', { sessionId, text })
+  if (!envelope.ok) throw new Error(envelope.error.message)
+  return envelope.value
+}
+
+/**
  * 拉取某会议的全量发言（群聊窗口数据源）。
  *
  * 按需端点，**不进 1Hz 轮询**：`since`（ts 下界）用于增量补齐，`limit` 由 host
