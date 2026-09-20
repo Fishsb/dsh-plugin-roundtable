@@ -5,7 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B-blue" alt="DeepSeek Harness 0.1.5-rc.1+"></a>
-  <img src="https://img.shields.io/badge/version-v0.2.49-blue" alt="v0.2.49">
+  <img src="https://img.shields.io/badge/version-v0.2.50-blue" alt="v0.2.50">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
   <img src="https://img.shields.io/github/commit-activity/m/Fishsb/dsh-plugin-roundtable" alt="commit activity">
 </p>
@@ -34,6 +34,7 @@
 - 💬 **群聊视图（v0.2.47）** — 同一 Tab 内一键切换「拓扑 / 群聊」：会议发言以 QQ 群聊形态展示（气泡、品牌头像、连续同人合并、轮次分隔），底部输入框可**以主持人身份直接说话**（落盘标 `source: user`，主持人下轮能分辨是谁说的）；拓扑视图与右栏面板完全不受影响
 - ⌨️ **空状态就地开局（v0.2.48）** — 「还没有圆桌会议」那一屏也有**同一个**输入框：说一句议题，主持人当场拉起专家队伍（等价于 `/roundtable <议题>`），不必再回聊天窗口绕一圈
 - 🛡️ **审查修复（v0.2.49）** — 群聊输入条补上 **IME 组合态守卫**（中文选词按 Enter 不再误发半截拼音）；群聊发言**唤醒主持人**并如实回报是否送达；`source: user` 真正进入主持人可读面（status / 汇聚网关 / 导出）；截断提示改由 host 判定
+- 👁️ **模式状态可见（v0.2.50）** — 讨论模式徽章同时出现在**空状态那一屏**与有会议时的头部（此前只有后者）：「在这一屏打了个字」会置上一条**切走 Tab 也不关**的模式，而它此前完全不可见；徽章抽成单一共享组件，两处说法不会漂移，子标签改为描述后果（`切走 tab 仍开启`）而非来源
 - 🎯 **圆桌讨论模式（e 功能）** — 两个入口同一个状态：**打开「圆桌会议」Tab** 或敲 **`/roundtable`**，本会话之后发的每条消息都按圆桌会议处理；`/roundtable off` 或切走 Tab 关闭
 - 🧩 **持久子代理专家** — 每位专家都是独立可续聊的子代理，带《全局协作总纲》（目标 / 角色边界 / 协作协议 / 安全红线）入会
 - 🔗 **可视化连线** — 悬停拖拽「＋」拉线，右键切换单向/双向或删除，双向通道两端各有一个箭头

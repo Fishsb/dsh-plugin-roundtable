@@ -223,7 +223,7 @@ export type RoundTableKey =
   | 'managePresetEmpty'
   | 'modeOn'
   | 'modeOff'
-  | 'modeViaCommand'
+  | 'modePersistent'
   | 'modeOnHint'
   | 'modeOffHint'
   | 'viewTopology'
@@ -470,7 +470,7 @@ export const zh: Record<RoundTableKey, string> = {
   managePresetEmpty: '还没有预设：去「设置 → 圆桌会议 → 角色预设」新建一个。',
   modeOn: '讨论模式 · 开',
   modeOff: '讨论模式 · 关',
-  modeViaCommand: '（命令开启）',
+  modePersistent: '（切走 tab 仍开启）',
   modeOnHint: '本会话已处于圆桌讨论模式：在这里发的每条消息都按圆桌会议处理（先出设置卡）。关闭用聊天框里的 /roundtable off。',
   modeOffHint: '本会话未处于圆桌讨论模式：把「圆桌会议」tab 打开即可自动开启，或在聊天框敲 /roundtable 手动开启。',
   viewTopology: '拓扑',
@@ -711,7 +711,7 @@ export const en: Record<RoundTableKey, string> = {
   managePresetEmpty: 'No presets yet — create one under Settings → RoundTable → Role presets.',
   modeOn: 'Discussion mode · on',
   modeOff: 'Discussion mode · off',
-  modeViaCommand: '(via command)',
+  modePersistent: '(stays on after you leave)',
   modeOnHint: 'This session is in round-table discussion mode: every message sent here is handled as a round-table meeting (starting with the settings card). Turn it off with /roundtable off in the chat box.',
   modeOffHint: 'This session is not in round-table discussion mode: open the “RoundTable” tab to turn it on automatically, or type /roundtable in the chat box.',
   viewTopology: 'Topology',

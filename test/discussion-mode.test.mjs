@@ -156,9 +156,30 @@ test('接线守卫③：客户端挂载写 auto、卸载撤 auto，且徽章读 
   assert.match(cleanup, /alive = false/, '卸载后必须丢掉晚到的回包（否则 React 报警 + 假状态）')
   assert.ok(cleanup.indexOf('active: false') > cleanup.indexOf('alive = false'),
     '先立 alive=false 守卫再发请求，否则回包仍会写进已卸载组件')
-  // 徽章：真值来自 state，且 null 时不画（不闪假状态）
-  assert.match(view, /modeState === null \?/, '真值未到前不得画徽章')
-  assert.match(view, /modeState\.manual/, '命令来源要与 tab 来源区分显示')
+  // 徽章自身的显示条件已搬进共享组件（v0.2.50），其守卫见接线守卫⑥。
+})
+
+test('接线守卫⑥：徽章是**一个**组件、两处共用，且两处都渲得出来', () => {
+  const view = stripLineComments(read('../src/client/RoundTableView.tsx'))
+  // 必须引用共享组件，而不是各写一份内联标记（两份会漂移，而它承载的是状态事实）。
+  assert.match(view, /from '\.\/ModeBadge\.tsx'/, '未引用共享的 ModeBadge')
+  // ⚠ 两处徽章**都在** `if (meeting === undefined) {` 之后（空状态那一块在早退体内部，
+  // 头部在早退体之后），所以不能用那一行做切片边界 —— 用早退体的结束锚点
+  // （`const modeLabel =`，与 chat-view.test.mjs 同一对锚点）。
+  const earlyAt = view.indexOf('if (meeting === undefined) {')
+  const earlyEnd = view.indexOf('const modeLabel =', earlyAt)
+  assert.ok(earlyAt >= 0 && earlyEnd > earlyAt, '找不到早退体（锚点漂了就要同步改本守卫）')
+  const emptyScreen = view.slice(earlyAt, earlyEnd)
+  const header = view.slice(earlyEnd)
+  assert.match(emptyScreen, /<ModeBadge /, '空状态那一屏没有徽章（模式开着却看不见）')
+  assert.match(header, /<ModeBadge /, '有会议时的头部没有徽章')
+  // 两处引用的是同一个组件 —— 抽出来之后仍内联一份自己的标记就白抽了。
+  assert.ok(!/modeViaCommand|modePersistent/.test(view), '视图里仍内联了徽章文案（应只在共享组件里）')
+  // 组件侧：真值未到时不得画（否则先画"关"再跳"开"，用户看到一次不存在的状态变化）；
+  // `manual` 那一份必须能被区分显示。
+  const badge = stripLineComments(read('../src/client/ModeBadge.tsx'))
+  assert.match(badge, /state === null\) return null/, '真值未到前不得画徽章')
+  assert.match(badge, /state\.manual \?/, '未区分"切走也不关"的那一份')
 })
 
 test('接线守卫④：rpc 端点存在，且 mode.set 校验输入（不写垃圾键）', () => {

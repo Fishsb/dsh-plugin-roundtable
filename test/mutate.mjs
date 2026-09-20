@@ -206,6 +206,23 @@ const mutations = {
     to: 'steerCaptain(captain, text)',
     expect: '唤醒时没有标明这条来自用户',
   },
+  28: {
+    name: '空状态那一屏不画徽章（用户在这一屏打字后"切走仍开"完全不可见）',
+    // ⚠ 两处徽章写法**逐字相同**，replace 只换第一处 —— 而第一处正是空状态那一屏
+    // （空状态在早退体里，头部在早退体之后）。这恰好是本次变异要打的位置；
+    // 若将来两处写法分化，本变异会换错地方，届时应改成带上下文的锚点。
+    file: 'src/client/RoundTableView.tsx',
+    from: '<ModeBadge state={modeState} t={translate} />',
+    to: '<span />',
+    expect: '空状态那一屏没有徽章',
+  },
+  29: {
+    name: '徽章在真值未到时照画（先画"关"再跳"开"，用户看到一次不存在的状态变化）',
+    file: 'src/client/ModeBadge.tsx',
+    from: 'if (state === null) return null',
+    to: 'if (false) return null',
+    expect: '真值未到前不得画徽章',
+  },
 }
 
 const id = process.argv[2]

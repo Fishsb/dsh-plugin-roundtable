@@ -24,6 +24,7 @@ import styles from './RoundTableView.module.css'
 import { DispatchPanel } from './DispatchPanel.tsx'
 import { ChatView } from './ChatView.tsx'
 import { ChatComposer } from './ChatComposer.tsx'
+import { ModeBadge } from './ModeBadge.tsx'
 
 export interface RoundTableViewInjected {
   rpc: RpcCaller
@@ -1123,6 +1124,11 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
         <div className={styles.main}>
           <div className={styles.emptyState}>
             <div className={styles.emptyTitle}>{translate('empty')}</div>
+            {/* 模式徽章必须出现在**这一屏**（v0.2.50）：打开 tab 本身就开了讨论模式，
+                而这一屏的输入框还会额外置上"切走也不关"的那一份。此前徽章只在
+                有会议的头部渲染，于是"在这一屏打了个字"的后果完全不可见 ——
+                用户回到聊天才发现每条消息都被当议题处理。 */}
+            <ModeBadge state={modeState} t={translate} />
             <div className={styles.emptyHint}>{translate('emptyHint')}</div>
             {/* 输入框与群聊窗口**是同一个组件**（用户要求）：在这里打字等于给
                 这个会话开一场会议 —— 语义与 `/roundtable <议题>` 一致。 */}
@@ -1351,16 +1357,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             <span className={styles.badge}>{meeting.status}</span>
             <span className={styles.round}>{translate('round')} {meeting.round}</span>
             {/* 讨论模式徽章（E 功能）：本 tab 打开即亮；命令开的模式也会亮。
-                `null` = 还没问到 host，先不画 —— 不闪假状态。 */}
-            {modeState === null ? null : (
-              <span
-                className={[styles.modeBadge, modeState.active ? styles.modeBadgeOn : ''].filter(Boolean).join(' ')}
-                title={modeState.active ? translate('modeOnHint') : translate('modeOffHint')}
-              >
-                {modeState.active ? translate('modeOn') : translate('modeOff')}
-                {modeState.manual ? <span className={styles.modeBadgeManual}>{translate('modeViaCommand')}</span> : null}
-              </span>
-            )}
+                与空状态那一屏**共用同一个组件**（`ModeBadge`）—— 两处说法必须一致。 */}
+            <ModeBadge state={modeState} t={translate} />
             {meeting.review !== null ? (
               <button
                 type="button"
