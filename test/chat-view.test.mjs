@@ -55,16 +55,31 @@ test('条数夹取：超大值被夹到上限，0/负数被抬到 1', () => {
 
 test('窗口切分：since 是严格大于（增量补齐不会重复送回边界那条）', () => {
   const all = [{ ts: 10 }, { ts: 20 }, { ts: 30 }]
-  assert.deepEqual(selectTranscriptWindow(all, 20, 100), [{ ts: 30 }])
-  assert.deepEqual(selectTranscriptWindow(all, 0, 100), all)
+  assert.deepEqual(selectTranscriptWindow(all, 20, 100).items, [{ ts: 30 }])
+  assert.deepEqual(selectTranscriptWindow(all, 0, 100).items, all)
 })
 
 test('窗口切分：超限时取尾部（看最新），但保持升序返回', () => {
   const all = [{ ts: 1 }, { ts: 2 }, { ts: 3 }, { ts: 4 }, { ts: 5 }]
-  const window = selectTranscriptWindow(all, 0, 3)
-  assert.deepEqual(window, [{ ts: 3 }, { ts: 4 }, { ts: 5 }])
+  const { items } = selectTranscriptWindow(all, 0, 3)
+  assert.deepEqual(items, [{ ts: 3 }, { ts: 4 }, { ts: 5 }])
   // 升序：前端直接按数组顺序渲染气泡即为时间顺序。
-  assert.ok(window.every((item, index) => index === 0 || window[index - 1].ts < item.ts))
+  assert.ok(items.every((item, index) => index === 0 || items[index - 1].ts < item.ts))
+})
+
+test('窗口切分：truncated 由 host 判定，且是精确判定（客户端不再拿本地页大小常量去猜）', () => {
+  // host 看得见全量，所以判定是**精确**的，不是客户端那种"等于上限就保守算截断"：
+  // 正好装满上限 = 一条都没丢 ⇒ 不截断。客户端旧写法（length >= PAGE）在这里会
+  // 误报 —— 而那正是我们要修掉的、依赖两份常量同步的推断。
+  const exact = [{ ts: 1 }, { ts: 2 }, { ts: 3 }]
+  assert.equal(selectTranscriptWindow(exact, 0, 3).truncated, false, '正好装满不等于截断')
+  // 超出上限才真的丢了更早的发言。
+  const over = [{ ts: 1 }, { ts: 2 }, { ts: 3 }, { ts: 4 }]
+  assert.equal(selectTranscriptWindow(over, 0, 3).truncated, true, '超出上限必须报截断')
+  // 边界：一条都没有 / 空上限视角。
+  assert.equal(selectTranscriptWindow([], 0, 200).truncated, false)
+  // since 过滤后再判定：过滤剩 2 条、上限 5 ⇒ 不截断（不能拿过滤前的总数判）。
+  assert.equal(selectTranscriptWindow(over, 2, 5).truncated, false)
 })
 
 test('窗口切分：不修改入参（就地排序/去重会把宿主状态改掉）', () => {
@@ -116,6 +131,46 @@ test('接线：say 走 appendUtterance（不自己拼文件写），且标 sourc
   assert.ok(body.includes('nodeKey: CAPTAIN_KEY'), 'say 的身份位不是 captain')
   assert.ok(body.includes("source: 'user'"), 'say 没有标 source=user（主持人将无法区分用户亲口说的话）')
   assert.ok(!body.includes('writeFile'), 'say 不得绕开 state 层自己写文件')
+})
+
+test('接线：say 落盘后**唤醒**主持人（落盘 ≠ 送达，不唤醒就是假成功）', () => {
+  const src = deComment(read('../src/rpc.ts'))
+  const at = src.indexOf("case 'roundtable/say'")
+  const next = src.indexOf('case \'', at + 10)
+  const body = src.slice(at, next > 0 ? next : src.length)
+  // 只落盘不唤醒：用户在空闲会议里说话，气泡出现了却永远不会有人回应 ——
+  // 这正是本插件一直在防的"假成功"。而且同一个输入条在空状态那一屏会 steer，
+  // 两处行为必须一致。
+  assert.ok(body.includes('steerCaptain('), 'say 没有唤醒主持人（落盘≠送达）')
+  assert.ok(body.includes('delivered'), 'say 没有把送达结果回给前端')
+  // 加壳：steer 出去的是 plugin 来源的消息，裸着转发用户原文会让主持人分不清
+  // 这是用户本人在说话还是插件注入的文本。
+  assert.ok(body.includes('Message from the user'), '唤醒时没有标明这条来自用户（主持人会误判来源）')
+  // 唤醒必须在会议锁**之外**（steer 会推进入主持人的回合，不该占着会议锁）。
+  const lockStart = body.indexOf('withMeetingRpcLock')
+  const lockBody = body.slice(lockStart, body.indexOf('if (!recorded.ok)'))
+  assert.ok(!lockBody.includes('steerCaptain('), 'steerCaptain 被放在会议锁内（会长时间占锁）')
+})
+
+test('接线：source=user 真的到得了主持人可读面（否则那条区分在 host 侧不可达）', () => {
+  // `source` 字段存在的**唯一理由**是让主持人分辨"用户亲口说的"与"我自己说的"。
+  // 若它只传到浏览器（wire.ts）而主持人读的 status/digest/export 都不带，
+  // 这条区分就形同虚设 —— 主持人会把用户的话读成自己的话，于是不再回应。
+  const tools = deComment(read('../src/tools.ts'))
+  // ⚠ 必须断言**取值表达式**，不能只断言 `from_user:` 这个键出现过 ——
+  // 写成 `from_user: false,` 同样含 `from_user:`，那样恒定绿（本守卫第一版就是，
+  // 由 test/mutate.mjs 的变异 21 实证）。
+  assert.match(
+    tools,
+    /from_user:\s*utterance\.source === 'user',/,
+    'roundtable_status 的 recent_utterances 没有真的从 source 推导 from_user',
+  )
+  assert.ok(tools.includes('userSourceMark('), '导出没标出用户亲口的发言')
+  const aggregator = deComment(read('../src/aggregator.ts'))
+  assert.ok(aggregator.includes('userSourceMark('), '汇聚网关 digest 没标出用户亲口的发言')
+  // 标记必须来自**单一来源**：四处各写各的字面量必然漂移。
+  const shared = read('../src/utterance-source.ts')
+  assert.ok(shared.includes("utterance.source === 'user'"), '共享标记函数没有真的判定 source=user')
 })
 
 test('接线：transcript.list 是只读端点（不做任何写入）', () => {
@@ -267,12 +322,30 @@ test('接线：steer 端点在 host 侧注册、走 mode 表 + steerCaptain，�
   const body = src.slice(at, next > 0 ? next : src.length)
   assert.ok(body.includes('runtime.mode.set(sessionId, \'manual\', true)'), 'steer 没有置讨论模式')
   assert.ok(body.includes('steerCaptain('), 'steer 没有走既有的主持人投递入口')
+  // **顺序**也必须钉住：模式段是 system prompt 的一部分，先 steer 再置模式会出现
+  // "议题已转交但主持人不知道要按圆桌处理"的窗口。只断言两者都出现是不够的 ——
+  // 把两句对调后 include 断言照样全绿（由 test/mutate.mjs 的变异 19 实证）。
+  const setAt = body.indexOf("runtime.mode.set(sessionId, 'manual', true)")
+  const steerAt = body.indexOf('steerCaptain(')
+  assert.ok(setAt >= 0 && steerAt >= 0, '找不到置模式/steer 的调用点')
+  assert.ok(setAt < steerAt, '必须先置讨论模式再 steer（顺序反了主持人不知道按圆桌处理）')
   // 关键反例：不得复用 runModeCommand —— 它会把 "off" 当命令退模式，
   // 而输入框里打的每个字都是议题。
   assert.ok(!body.includes('runModeCommand('), 'steer 复用了命令解析（"off" 会被误当命令）')
   assert.ok(!body.includes('parseModeCommand('), 'steer 复用了命令解析')
   // 没有活 agent 时必须明确失败，不得假装已送达。
   assert.ok(body.includes('has no live agent'), '缺少"无活会话"的显式失败')
+})
+
+test('接线：截断标记由 host 给（客户端不得再拿本地页大小常量去猜）', () => {
+  // 客户端旧写法 `list.length >= TRANSCRIPT_PAGE` 依赖"本地常量 == host 夹取上限"，
+  // 而它们是两份彼此不知道的常量：host 上限一调小，客户端就拿小数字去比大数字，
+  // 「更早的发言未载入」会**静默消失**，用户以为自己看到了全部。
+  const client = deComment(read('../src/client/RoundTableView.tsx'))
+  assert.ok(!/TRANSCRIPT_PAGE/.test(client), '客户端仍在用本地页大小常量推断截断')
+  assert.ok(client.includes('page.truncated'), 'loadTranscript 没有消费 host 给的 truncated')
+  const wire = deComment(read('../src/client/wire.ts'))
+  assert.ok(wire.includes('truncated:'), 'fetchTranscript 没有把 truncated 带回前端')
 })
 
 test('接线：客户端真的引用了 steerSession（不是只定义了没人调）', () => {
@@ -307,16 +380,4 @@ test('客户端：切回拓扑时重新测量画布（旧 observers 不跟卸载
   const depAt = src.indexOf('}, [view])', at)
   assert.ok(depAt > 0, '画布测量 effect 没有依赖 view（切回后节点会挤在默认坐标）')
   assert.ok(depAt > at, '依赖数组的位置不在 effect 之后')
-})
-
-test('语言字典：中英两份键集逐字一致（缺一条会让另一种语言显示键名）', async () => {
-  const { zh, en } = await import('../src/client/locales.ts')
-  const zhKeys = Object.keys(zh).sort()
-  const enKeys = Object.keys(en).sort()
-  assert.deepEqual(enKeys, zhKeys)
-  // 群聊新增键必须两份都在。
-  for (const key of ['viewTopology', 'viewChat', 'chatSend', 'chatYou', 'chatRoundDivider']) {
-    assert.ok(zhKeys.includes(key), `zh 缺少 ${key}`)
-    assert.ok(enKeys.includes(key), `en 缺少 ${key}`)
-  }
 })

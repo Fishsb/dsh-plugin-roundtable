@@ -64,8 +64,6 @@ interface Member {
   label: string
   role: string
   provider: string
-  /** 是否是"我"（用户在群聊里亲口发的）。 */
-  mine: boolean
 }
 
 export function ChatView(props: ChatViewProps): JSX.Element {
@@ -82,7 +80,6 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       label: 'DeepSeek · 主持',
       role: t('meeting'),
       provider: 'deepseek',
-      mine: false,
     }]
     for (const node of live) {
       list.push({
@@ -90,7 +87,6 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         label: node.key,
         role: node.role,
         provider: node.provider,
-        mine: false,
       })
     }
     return list
@@ -180,7 +176,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             {/* 发言去向往气泡下方（QQ 没有这个，但会议的"发给谁"是真实信息，
                 不显示会让单线制/圆桌制的差别在群聊里彻底不可见）。 */}
             {message.kind === 'speech' && !mine ? (
-              <div className={[styles.bubbleMeta, mine ? styles.bubbleMetaRight : ''].filter(Boolean).join(' ')}>
+              <div className={styles.bubbleMeta}>
                 <span>{audience}</span>
               </div>
             ) : null}

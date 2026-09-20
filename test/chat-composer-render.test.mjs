@@ -68,7 +68,42 @@ async function render(props) {
   }
 }
 
-test('渲染面：输入框与发送按钮真的出现在 DOM 里（非空壳）', async () => {
+/** 拿生产代码导出的 `shouldSendOnKey`（真函数，不是测试里抄一份）。 */
+async function loadShouldSend() {
+  const { mod, cleanup } = await loadTsx(COMPOSER)
+  try {
+    return mod.shouldSendOnKey
+  } finally {
+    cleanup()
+  }
+}
+
+/**
+ * 按键决策层：Enter 发送 / Shift+Enter 换行 / IME 组合态不发送。
+ *
+ * 为什么必须直测这条：它在**渲染面上不可观测** —— SSR 渲不出按键行为，
+ * 上面 6 条渲染断言全绿也照样可以把这行守卫删掉。
+ */
+test('按键：Enter 发送，Shift+Enter 换行（聊天窗口的肌肉记忆）', async () => {
+  const shouldSend = await loadShouldSend()
+  assert.equal(shouldSend('Enter', false, false), true, 'Enter 应当发送')
+  assert.equal(shouldSend('Enter', true, false), false, 'Shift+Enter 应当换行而不是发送')
+  assert.equal(shouldSend('a', false, false), false, '普通字符不发送')
+})
+
+test('按键：IME 组合态下 Enter 不发送（中文选词不会被当成发送）', async () => {
+  const shouldSend = await loadShouldSend()
+  // 这是本组断言的核心：组合期间 key 同样是 'Enter'，不拦就把半截拼音发出去了。
+  assert.equal(shouldSend('Enter', false, true), false, 'IME 组合期间按 Enter 绝不能发送')
+  // 组合中即便按住 Shift 也不发送（两条规则是"或"关系，任一为真都不发）。
+  assert.equal(shouldSend('Enter', true, true), false)
+  // 组合结束后恢复正常发送。
+  assert.equal(shouldSend('Enter', false, false), true, '组合结束后 Enter 应恢复发送')
+  // 老浏览器/合成事件缺失该字段时按"不在组合中"处理（不发送会变成静默失灵）。
+  assert.equal(shouldSend('Enter', false, undefined), true, 'isComposing 缺失时应按可发送处理')
+})
+
+test('渲染面：输入框真的出现在 DOM 里（非空壳）', async () => {
   const html = await render({})
   assert.match(html, /<textarea/, '没有渲染出输入框')
   assert.match(html, /<button/, '没有渲染出发送按钮')

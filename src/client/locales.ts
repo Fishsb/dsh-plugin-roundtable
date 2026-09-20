@@ -235,11 +235,11 @@ export type RoundTableKey =
   | 'chatSend'
   | 'chatSending'
   | 'chatSendFailed'
+  | 'chatNotDelivered'
   | 'chatLoadFailed'
   | 'chatLoading'
   | 'chatYou'
   | 'chatTruncated'
-  | 'chatToday'
   | 'chatRoundDivider'
   | 'chatToGateway'
   | 'chatToSeat'
@@ -482,11 +482,11 @@ export const zh: Record<RoundTableKey, string> = {
   chatSend: '发送',
   chatSending: '发送中…',
   chatSendFailed: '发送失败：{msg}',
+  chatNotDelivered: '已记入会议，但没能送到主持人（这场会议当前没有活的主持人会话）—— 它不会回应这句话。',
   chatLoadFailed: '群聊记录加载失败：{msg}',
   chatLoading: '正在加载群聊记录…',
   chatYou: '我',
   chatTruncated: '仅显示最近 {n} 条；更早的发言未载入。',
-  chatToday: '今天',
   chatRoundDivider: '第 {n} 轮',
   chatToGateway: '→ 汇聚网关',
   chatToSeat: '→ {to}',
@@ -723,11 +723,11 @@ export const en: Record<RoundTableKey, string> = {
   chatSend: 'Send',
   chatSending: 'Sending…',
   chatSendFailed: 'Send failed: {msg}',
+  chatNotDelivered: 'Recorded in the meeting, but it did not reach the captain (this meeting has no live captain session) — nothing will answer it.',
   chatLoadFailed: 'Failed to load the transcript: {msg}',
   chatLoading: 'Loading the transcript…',
   chatYou: 'Me',
   chatTruncated: 'Showing the latest {n}; earlier messages are not loaded.',
-  chatToday: 'Today',
   chatRoundDivider: 'Round {n}',
   chatToGateway: '→ gateway',
   chatToSeat: '→ {to}',

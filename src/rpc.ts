@@ -139,6 +139,12 @@ export function clampTranscriptLimit(raw: unknown): number {
  *   - 取**尾部** `limit` 条（群聊要看最新），但**按升序返回**（气泡顺序即时间
  *     顺序，前端不该再排一次）。
  *
+ * 返回的 `truncated` 是**由 host 判定**的"真的丢了更早的发言"。刻意不用
+ * 「条数 == 上限」这种前端侧的推断：那要求客户端的页大小常量与 host 的夹取上限
+ * 永远同步，而它们是两份彼此不知道的常量 —— host 上限调到 100 时，客户端拿 100 条
+ * 去比 200，「更早的发言未载入」这条提示就会**静默消失**，用户以为自己看到了全部。
+ * 判定权归知道真相的一侧（这里），前端只负责显示。
+ *
  * @param all   全量发言（按 ts 升序）。
  * @param since ts 下界；`<= 0` 表示不筛。
  * @param limit 已由 {@link clampTranscriptLimit} 收敛过的条数上限。
@@ -147,9 +153,13 @@ export function selectTranscriptWindow<T extends { ts: number }>(
   all: readonly T[],
   since: number,
   limit: number,
-): T[] {
+): { items: T[]; truncated: boolean } {
   const filtered = since > 0 ? all.filter((utterance) => utterance.ts > since) : [...all]
-  return filtered.length > limit ? filtered.slice(filtered.length - limit) : filtered
+  const truncated = filtered.length > limit
+  return {
+    items: truncated ? filtered.slice(filtered.length - limit) : filtered,
+    truncated,
+  }
 }
 
 /** `roundtable/say` 的正文裁决（非法输入给出可读原因，不抛）。 */
@@ -860,36 +870,71 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
             const limit = clampTranscriptLimit(body?.limit)
             return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
               const all = await readTranscript(stateRoot, meetingId)
-              return ok<MeetingUtterance[]>(selectTranscriptWindow(all, since, limit))
+              // 截断标记由 host 判定并随数据一起回（而不是让客户端拿自己的页大小
+              // 常量去猜）：判定权必须归知道全量的那一侧，否则 host 上限一改，
+              // 前端"上面还有更早发言"的提示就会静默消失。见 selectTranscriptWindow。
+              return ok<{ items: MeetingUtterance[]; truncated: boolean }>(
+                selectTranscriptWindow(all, since, limit),
+              )
             })
           }
           case 'roundtable/say': {
-            // 群聊输入框：用户在窗口里说的话，落成一条主持人发言。
+            // 群聊输入框：用户在窗口里说的话，落成一条主持人发言，并**唤醒主持人**。
             //
             // 与 `roundtable/speak`（主持人工具）的区别只在 `source: 'user'`：
             // 身份同为 `captain`（用户就是主持人本人），但主持人下一轮读
             // transcript 时必须能区分"用户亲口说的"与"我自己说的"，否则会
             // 把用户的话当成自己的话 —— 那是归因错误，不是风格问题。
+            //
+            // **为什么要唤醒**（v0.2.49 定案）：只落盘不唤醒的话，用户在空闲/
+            // 结束的会议里说一句话，界面上它出现了，但**没有任何人或事会回应它** ——
+            // 这正是本插件一直在防的"假成功"（落盘 ≠ 送达）。而且同一个输入条在
+            // 空状态那一屏会 steer 主持人开局，在这里却毫无反应，两处行为不一致。
+            // 唤醒是**尽力而为**：没有活的主持人 agent 时如实回 `delivered: false`，
+            // 由前端提示 —— 不假装已送达。
             const body = payload as { meetingId?: unknown; text?: unknown } | undefined
             const meetingId = typeof body?.meetingId === 'string' ? body.meetingId : ''
             if (meetingId === '') return fail('payload must be { meetingId, text }')
             const judged = normalizeSayText(body?.text)
             if (!judged.ok) return fail(judged.reason)
             const text = judged.text
-            return withMeetingRpcLock(runtime, meetingId, async (stateRoot) => {
-              const meeting = await readMeeting(stateRoot, meetingId)
-              if (meeting === undefined) return fail(`meeting "${meetingId}" not found`)
-              const utterance: MeetingUtterance = {
-                id: randomUUID(),
-                nodeKey: CAPTAIN_KEY,
-                kind: 'speech',
-                content: text,
-                source: 'user',
-                round: meeting.round,
-                ts: Date.now(),
-              }
-              await appendUtterance(stateRoot, meetingId, utterance)
-              return ok<{ id: string; ts: number }>({ id: utterance.id, ts: utterance.ts })
+            // 显式给出成功分支的类型：回调里同时有 `ok<…>()` 与 `fail()`，
+            // 而 `fail<T>` 的 T 默认 unknown —— 不标注的话 T 会被推成 unknown。
+            const recorded = await withMeetingRpcLock<{ id: string; ts: number; captainSessionId: string }>(
+              runtime,
+              meetingId,
+              async (stateRoot) => {
+                const meeting = await readMeeting(stateRoot, meetingId)
+                if (meeting === undefined) return fail(`meeting "${meetingId}" not found`)
+                const utterance: MeetingUtterance = {
+                  id: randomUUID(),
+                  nodeKey: CAPTAIN_KEY,
+                  kind: 'speech',
+                  content: text,
+                  source: 'user',
+                  round: meeting.round,
+                  ts: Date.now(),
+                }
+                await appendUtterance(stateRoot, meetingId, utterance)
+                return ok({ id: utterance.id, ts: utterance.ts, captainSessionId: meeting.captainSessionId })
+              },
+            )
+            if (!recorded.ok) return recorded
+            // 唤醒放在锁外（与 `roundtable_send_message` 同一理由：steer 会推进入
+            // 主持人的回合，不该占着会议锁）。
+            //
+            // 必须**加壳**再转交：steer 出去的是 plugin 来源的消息，原文裸着塞进去
+            // 主持人无法判断这是用户本人的指令、还是插件自己注入的文本。加壳照
+            // `roundtable_send_message` 的既有格式，并点明出处 —— 主持人据此知道
+            // "用户本人在会议群聊里说了这句话"。
+            const captain = ctx.agents.get(recorded.value.captainSessionId as SessionId)
+            const delivered = captain === undefined
+              ? false
+              : steerCaptain(captain, `Message from the user (meeting group chat):\n\n${text}`)
+            return ok<{ id: string; ts: number; delivered: boolean }>({
+              id: recorded.value.id,
+              ts: recorded.value.ts,
+              delivered,
             })
           }
           case 'roundtable/steer': {

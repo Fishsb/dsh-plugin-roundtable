@@ -7,6 +7,7 @@
  */
 
 import type { MeetingUtterance } from './types.ts'
+import { userSourceMark } from './utterance-source.ts'
 
 const MAX_LENGTH = 4000
 const MAX_PER_UTTERANCE = 160
@@ -40,7 +41,9 @@ export function aggregateUtterances(utterances: readonly MeetingUtterance[], max
     const source = utterance.summary ?? utterance.content
     const body = compact(extractCore(source), MAX_PER_UTTERANCE)
     const suggestion = compact(extractSuggestion(source), MAX_PER_UTTERANCE)
-    lines.push(`[R${utterance.round}] ${from} → ${to}\n${body}${suggestion === '' ? '' : `\n[建议决策] ${suggestion}`}`)
+    // 用户亲口说的话要带标记：主持人读 digest 时若把它当成自己的发言，
+    // 就会以为"我已经表过态"，于是不再回应 —— 用户的话等于石沉大海。
+    lines.push(`[R${utterance.round}] ${from}${userSourceMark(utterance)} → ${to}\n${body}${suggestion === '' ? '' : `\n[建议决策] ${suggestion}`}`)
   }
   const text = `[汇聚网关·交锋摘要]\n${lines.join('\n\n') || '（暂无发言）'}`
   return text.length > maxLength ? `${text.slice(0, maxLength)}\n…(截断)` : text

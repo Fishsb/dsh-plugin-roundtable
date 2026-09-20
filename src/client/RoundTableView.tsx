@@ -53,9 +53,6 @@ interface DragState {
 
 const NODE_RADIUS = 34
 
-/** `roundtable/transcript.list` 的申请条数（与 host 侧上限对齐）。 */
-const TRANSCRIPT_PAGE = 200
-
 /** Provider → brand avatar (logo image if bundled, else abbreviation + brand color). */
 const PROVIDER_BRAND: Array<{ key: string; match: RegExp; abbr: string; color: string; dark?: boolean }> = [
   { key: 'zai', match: /^zai\b|zai\//i, abbr: 'ZAI', color: '#3859FF' },
@@ -548,11 +545,11 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const loadTranscript = useCallback(async (meetingId: string): Promise<void> => {
     setChatLoading(true)
     try {
-      const list = await fetchTranscript(rpc, meetingId)
-      setChatMessages(list)
-      // host 侧夹取到上限即视为截断：条数正好等于上限时也是截断，
-      // 因为它可能就是"第 1000 条之后还有"。
-      setChatTruncated(list.length >= TRANSCRIPT_PAGE)
+      // 截断标记来自 host（它才知道全量），客户端不拿本地页大小常量去猜：
+      // 两份常量一旦不同步，「更早的发言未载入」会静默消失。见 wire.ts 的注释。
+      const page = await fetchTranscript(rpc, meetingId)
+      setChatMessages(page.messages)
+      setChatTruncated(page.truncated)
       setChatError('')
     } catch (error: unknown) {
       setChatError(translate('chatLoadFailed').replace('{msg}', error instanceof Error ? error.message : String(error)))
@@ -568,12 +565,12 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
    * 不变式**（按 id 去重、合完必须重新按 ts 升序），写三遍就有三份会漂移的拷贝。
    */
   const mergeSince = useCallback(async (meetingId: string, since: number): Promise<void> => {
-    const list = await fetchTranscript(rpc, meetingId, { since })
-    if (list.length === 0) return
+    const page = await fetchTranscript(rpc, meetingId, { since })
+    if (page.messages.length === 0) return
     setChatMessages((current) => {
       const seen = new Set(current.map((message) => message.id))
       const merged = [...current]
-      for (const message of list) {
+      for (const message of page.messages) {
         if (seen.has(message.id)) continue
         seen.add(message.id)
         merged.push(message)
@@ -618,11 +615,13 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     if (meetingId === undefined || chatSending) return
     setChatSending(true)
     try {
-      const result = await rpc<{ id: string; ts: number }>('roundtable/say', { meetingId, text })
+      const result = await rpc<{ id: string; ts: number; delivered: boolean }>('roundtable/say', { meetingId, text })
       if (!result.ok) throw new Error(result.error.message)
       // 不做乐观插入：以 host 回包为准回读一次增量，避免"显示了但没落库"。
       await mergeSince(meetingId, latestChatTs)
-      setChatError('')
+      // 落盘 ≠ 送达。host 没能唤醒主持人（会议没有活 agent）时如实告知 ——
+      // 否则用户看到气泡出现，会以为主持人一定会回应，然后一直等下去。
+      setChatError(result.value.delivered ? '' : translate('chatNotDelivered'))
     } catch (error: unknown) {
       setChatError(translate('chatSendFailed').replace('{msg}', error instanceof Error ? error.message : String(error)))
     } finally {

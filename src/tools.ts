@@ -40,6 +40,7 @@ import { evaluateKbDigests, mergeKbDigestEntry } from './kb-digest.ts'
 import { PLUGIN_ID, HARNESS_RANGE } from './version.ts'
 import { buildCharter } from './charter.ts'
 import { aggregateUtterances } from './aggregator.ts'
+import { userSourceMark } from './utterance-source.ts'
 import { proxyThinkingPrompt } from './proxy-thinking.ts'
 import { beginRound, budgetExceeded, ensureActive, estimateTokens, MeetingMutedError } from './budget.ts'
 import { deliverToNode, interruptNode, nodeActivity, spawnNode, steerCaptain, type MemberRuntimeConfig } from './members.ts'
@@ -1445,6 +1446,10 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           content: utterance.content.slice(0, 400),
           to: utterance.to ?? '',
           round: utterance.round,
+          // 用户亲口说的要能被认出来：不给这个字段，主持人（以及为它写提示词的
+          // 后人）就只能看到一条 speaker=captain 的发言，分不清是用户说的还是
+          // 自己说的 —— 那正是 source 字段存在的唯一理由，却到不了 host 侧。
+          from_user: utterance.source === 'user',
         })).filter((row) => vis.utterance(row)).slice(-10),
         silence: {
           closedRounds: silenceForViewer.closedRounds,
@@ -2179,7 +2184,9 @@ function renderStatus(value: Record<string, unknown>): string {
         : []),
     ]),
     `Recent transcript:`,
-    ...recent.map((utterance) => `  [R${String(utterance.round)}] ${String(utterance.speaker)}${String(utterance.to ?? '') === '' ? '' : ` → ${String(utterance.to)}`}: ${String(utterance.content)}`),
+    // `（用户）` 标记：speaker 是 captain 的行有两种来源 —— 用户亲口说的、
+    // 或主持人自己说的。不标出来，主持人会把自己读成"用户"或反过来（归因错误）。
+    ...recent.map((utterance) => `  [R${String(utterance.round)}] ${String(utterance.speaker)}${utterance.from_user === true ? '（用户）' : ''}${String(utterance.to ?? '') === '' ? '' : ` → ${String(utterance.to)}`}: ${String(utterance.content)}`),
   ]
   return lines.join('\n')
 }
@@ -2382,7 +2389,9 @@ export function renderMeetingMarkdown(
       for (const utterance of utterances.filter((candidate) => candidate.round === round)) {
         const audience = (utterance.to ?? '') === '' ? '汇聚网关' : utterance.to
         const kind = utterance.kind === 'speech' ? '' : ` · ${utterance.kind}`
-        out.push(`**${utterance.nodeKey} → ${audience}** · ${formatStamp(utterance.ts)}${kind}`)
+        // 导出是**给用户留档**的：用户在群聊里说的话必须能认出来，
+        // 否则记录里它和主持人的发言长得一模一样（同一 nodeKey）。
+        out.push(`**${utterance.nodeKey}${userSourceMark(utterance)} → ${audience}** · ${formatStamp(utterance.ts)}${kind}`)
         const shown = utterance.content.length > EXPORT_UTTERANCE_CHARS
           ? `${utterance.content.slice(0, EXPORT_UTTERANCE_CHARS)}\n\n…（已截断，原长 ${utterance.content.length} 字符）`
           : utterance.content

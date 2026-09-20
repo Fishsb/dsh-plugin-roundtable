@@ -380,38 +380,49 @@ export async function steerSession(
  *
  * 按需端点，**不进 1Hz 轮询**：`since`（ts 下界）用于增量补齐，`limit` 由 host
  * 夹取到 [1, 1000]，默认 200。
+ *
+ * 返回值带 `truncated`（host 判定）：**不要**改成在客户端拿本地页大小常量去比条数 ——
+ * 那要求两份常量永远同步，host 上限一调小，客户端就静默不再提示"更早的发言未载入"。
+ * 判定权应在知道全量的那一侧。
  */
 export async function fetchTranscript(
   rpc: RpcCaller,
   meetingId: string,
   options: { since?: number; limit?: number } = {},
-): Promise<WireChatMessage[]> {
+): Promise<{ messages: WireChatMessage[]; truncated: boolean }> {
   const payload: { meetingId: string; since?: number; limit?: number } = { meetingId }
   if (options.since !== undefined && options.since > 0) payload.since = options.since
   if (options.limit !== undefined) payload.limit = options.limit
-  const envelope = await rpc<Array<{
-    id: string
-    nodeKey: string
-    kind: string
-    content: string
-    to?: string
-    workItem?: string
-    source?: string
-    round: number
-    ts: number
-  }>>('roundtable/transcript.list', payload)
+  const envelope = await rpc<{
+    items: Array<{
+      id: string
+      nodeKey: string
+      kind: string
+      content: string
+      to?: string
+      workItem?: string
+      source?: string
+      round: number
+      ts: number
+    }>
+    truncated: boolean
+  }>('roundtable/transcript.list', payload)
   if (!envelope.ok) throw new Error(envelope.error.message)
-  return envelope.value.map((utterance) => ({
-    id: utterance.id,
-    from: utterance.nodeKey,
-    to: utterance.to ?? '',
-    kind: utterance.kind,
-    text: utterance.content,
-    workItem: utterance.workItem ?? '',
-    source: utterance.source ?? '',
-    round: utterance.round,
-    ts: utterance.ts,
-  }))
+  return {
+    messages: envelope.value.items.map((utterance) => ({
+      id: utterance.id,
+      from: utterance.nodeKey,
+      to: utterance.to ?? '',
+      kind: utterance.kind,
+      text: utterance.content,
+      workItem: utterance.workItem ?? '',
+      source: utterance.source ?? '',
+      round: utterance.round,
+      ts: utterance.ts,
+    })),
+    // 缺失按"未截断"处理：老 host 不回该字段时不该凭空吓唬用户。
+    truncated: envelope.value.truncated === true,
+  }
 }
 
 export interface RoundTablePrefs {

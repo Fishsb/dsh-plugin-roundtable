@@ -25,8 +25,8 @@ const mutations = {
   2: {
     name: 'say 去掉 source:user（主持人无法区分用户亲口说的话）',
     file: 'src/rpc.ts',
-    from: "                content: text,\n                source: 'user',",
-    to: '                content: text,',
+    from: "                  content: text,\n                  source: 'user',",
+    to: '                  content: text,',
     expect: 'say 没有标 source=user',
   },
   3: {
@@ -62,7 +62,7 @@ const mutations = {
     file: 'src/client/ChatView.tsx',
     from: "from './ChatView.module.css'",
     to: "from './RoundTableView.module.css'",
-    expect: '混用了拓扑样式模块',
+    expect: 'ChatView 未使用独立样式模块',
   },
   8: {
     name: 'sendChat 改成乐观插入（先塞列表再回读）',
@@ -83,14 +83,14 @@ const mutations = {
     file: 'src/client/locales.ts',
     from: "  chatSend: 'Send',\n",
     to: '',
-    expect: '缺少 chatSend',
+    expect: 'Expected values to be strictly deep-equal',
   },
   11: {
     name: '空状态内联一份自己的 textarea（输入框不再与群聊共用）',
     file: 'src/client/RoundTableView.tsx',
     from: '              <ChatComposer\n                t={translate}\n                sending={steerSending}\n                onSend={(text) => { void startMeeting(text) }}\n                placeholderKey="emptyInputPlaceholder"\n              />',
     to: '              <textarea className={styles.input} />',
-    expect: '空状态块里内联了自己的 textarea',
+    expect: '空状态没有用共享的 ChatComposer',
   },
   12: {
     name: '空状态改调 say 而不是 steer（会议还不存在却当会议发言发）',
@@ -141,6 +141,71 @@ const mutations = {
     to: '  const [__probe] = useState(false)\n  const modeLabel = meeting.mode === \'egalitarian\'',
     expect: '早退之后出现了 hooks',
   },
+  19: {
+    name: 'steer 把「先置模式再转交」对调（议题送达时主持人还不知道要按圆桌处理）',
+    file: 'src/rpc.ts',
+    from: "            runtime.mode.set(sessionId, 'manual', true)\n            if (!steerCaptain(captain, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }",
+    to: "            if (!steerCaptain(captain, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }\n            runtime.mode.set(sessionId, 'manual', true)",
+    // 对调后"两句都在"，所以那些 include 断言全绿 —— 只有顺序断言会响，
+    // 响的就是它。这正是本变异存在的意义：证明顺序断言不是摆设。
+    expect: '必须先置讨论模式再 steer',
+  },
+  20: {
+    name: 'say 只落盘不唤醒主持人（气泡出现了却永远不会有人回应）',
+    file: 'src/rpc.ts',
+    from: "            const delivered = captain === undefined\n              ? false\n              : steerCaptain(captain, `Message from the user (meeting group chat):\\n\\n${text}`)",
+    to: '            const delivered = captain !== undefined',
+    expect: 'say 没有唤醒主持人',
+  },
+  21: {
+    name: 'status 的 recent_utterances 把 from_user 写死 false（主持人分不清是谁说的）',
+    file: 'src/tools.ts',
+    from: "          from_user: utterance.source === 'user',",
+    to: '          from_user: false,',
+    expect: 'roundtable_status 的 recent_utterances 没有真的从 source 推导 from_user',
+  },
+  22: {
+    name: '汇聚网关 digest 不标用户发言（主持人把自己的话读成用户的话）',
+    file: 'src/aggregator.ts',
+    from: '${from}${userSourceMark(utterance)} → ${to}',
+    to: '${from} → ${to}',
+    expect: '汇聚网关 digest 没标出用户亲口的发言',
+  },
+  23: {
+    name: '客户端重新引入本地页大小常量并拿它猜截断（host 上限一改提示就静默消失）',
+    file: 'src/client/RoundTableView.tsx',
+    from: '      setChatTruncated(page.truncated)',
+    to: '      const TRANSCRIPT_PAGE = 200\n      setChatTruncated(page.messages.length >= TRANSCRIPT_PAGE)',
+    expect: '客户端仍在用本地页大小常量推断截断',
+  },
+  24: {
+    name: 'ChatComposer 去掉 IME 组合态守卫（中文选词时把半截拼音发出去）',
+    file: 'src/client/ChatComposer.tsx',
+    from: '  if (isComposing === true) return false\n',
+    to: '',
+    expect: 'IME 组合期间按 Enter 绝不能发送',
+  },
+  25: {
+    name: '导出不标用户发言（留档里用户的话与主持人的话长得一样）',
+    file: 'src/tools.ts',
+    from: '${utterance.nodeKey}${userSourceMark(utterance)}',
+    to: '${utterance.nodeKey}',
+    expect: '导出没标出用户亲口的发言',
+  },
+  26: {
+    name: 'truncated 恒为 false（丢了更早的发言却告诉用户看全了）',
+    file: 'src/rpc.ts',
+    from: '  const truncated = filtered.length > limit',
+    to: '  const truncated = false',
+    expect: '超出上限必须报截断',
+  },
+  27: {
+    name: '唤醒主持人时裸传用户原文（主持人分不清是用户说的还是插件注入的）',
+    file: 'src/rpc.ts',
+    from: 'steerCaptain(captain, `Message from the user (meeting group chat):\\n\\n${text}`)',
+    to: 'steerCaptain(captain, text)',
+    expect: '唤醒时没有标明这条来自用户',
+  },
 }
 
 const id = process.argv[2]
@@ -148,6 +213,28 @@ const mutation = mutations[id]
 if (mutation === undefined) {
   console.error(`未知变异编号 ${id}；可用：${Object.keys(mutations).join(', ')}`)
   process.exit(2)
+}
+
+/**
+ * 从 TAP 输出里切出每个失败测试的**证据块**（`not ok` 行起，到下一个
+ * `ok`/`not ok`/`# ` 行为止，含其间的 `error:` 诊断）。
+ *
+ * 为什么要切块而不是全文搜 `expect`：断言消息出现在**失败块内部**，而测试名、
+ * 位置、`error:` 字段都在同一块里。全文搜会把"另一条测试恰好也提了这句词"算成命中。
+ */
+function failingBlocks(output) {
+  const blocks = []
+  let cur = null
+  for (const line of output.split('\n')) {
+    if (/^not ok /.test(line.trim())) {
+      if (cur !== null) blocks.push(cur.join('\n'))
+      cur = [line]
+    } else if (/^(ok |not ok |# )/.test(line.trim())) {
+      if (cur !== null) { blocks.push(cur.join('\n')); cur = null }
+    } else if (cur !== null) cur.push(line)
+  }
+  if (cur !== null) blocks.push(cur.join('\n'))
+  return blocks
 }
 
 const url = new URL(`../${mutation.file}`, import.meta.url)
@@ -158,6 +245,7 @@ if (!original.includes(mutation.from)) {
 }
 
 let failed = 0
+let attributed = false
 try {
   writeFileSync(url, original.replace(mutation.from, mutation.to), 'utf8')
   let output = ''
@@ -169,15 +257,35 @@ try {
   const failLine = output.split('\n').find((line) => line.startsWith('# fail'))
   failed = Number.parseInt((failLine ?? '# fail NaN').replace('# fail ', ''), 10)
   const passLine = output.split('\n').find((line) => line.startsWith('# pass'))
-  // 判定只看 fail 数：基线本来 0 失败，所以"变异后 > 0"就是守卫真的抓到了。
-  // ⚠ 不能用输出里有没有那句断言文案 —— 测试名本身也在输出里，即使通过也会命中
-  // （这一条正是本探针自己踩过的假绿，第一版就是这么判的）。
+  // 归因判定（v0.2.49 加严）：**必须有一个失败块里出现本变异的 expect 文案**。
+  //
+  // 为什么不能只看 `# fail > 0`：那个判据区分不出
+  //   (a) 目标守卫抓到了这次变异；还是
+  //   (b) 别的原因把套件弄红了（把源码改成语法错误时，整个文件的测试都会红，
+  //       而目标守卫**根本没机会执行**）—— 实测两者都报 `# fail > 0`。
+  // 于是探针会把"编译崩了"读成"18 条守卫全部有效"，这正是不该出现的不归因假绿。
+  const blocks = failingBlocks(output)
+  const matched = blocks.filter((block) => block.includes(mutation.expect))
+  attributed = matched.length > 0
+  const attributedTo = matched
+    .map((block) => (block.split('\n').find((line) => /^not ok /.test(line.trim())) ?? '').trim())
+    .filter((line) => line !== '')
   console.log(`变异 ${id}：${mutation.name}`)
   console.log(`  ${failLine ?? '(无 # fail 行)'} / ${passLine ?? '(无 # pass 行)'}`)
-  console.log(`  判定：${failed > 0 ? 'PASS（守卫真的转红）' : 'FAIL（假绿：改坏了却报不出来）'}`)
+  console.log(`  期望守卫文案：${mutation.expect}`)
+  for (const line of attributedTo) console.log(`   ↳ 命中：${line.slice(0, 120)}`)
+  if (failed > 0 && !attributed) {
+    console.log(`  ⚠ 有 ${blocks.length} 个失败块，但没有一个含期望文案 —— 疑非目标守卫（或 expect 写错）`)
+    for (const block of blocks.slice(0, 3)) {
+      const line = block.split('\n').find((l) => /^not ok /.test(l.trim()))?.trim() ?? ''
+      const err = block.split('\n').find((l) => /^\s*error: /.test(l))?.trim() ?? ''
+      console.log(`     ${line.slice(0, 110)}  ${err.slice(0, 110)}`)
+    }
+  }
+  console.log(`  判定：${failed > 0 && attributed ? 'PASS（目标守卫真的转红）' : failed > 0 ? 'FAIL（转红了，但不是这条守卫）' : 'FAIL（假绿：改坏了却报不出来）'}`)
 } finally {
   // 逐字节还原：变异必须不留残留（否则下一次实跑会带着坏代码通过）。
   writeFileSync(url, original, 'utf8')
 }
 
-process.exit(failed > 0 ? 0 : 1)
+process.exit(failed > 0 && attributed ? 0 : 1)

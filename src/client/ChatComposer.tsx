@@ -20,6 +20,38 @@
 import { useState, type KeyboardEvent } from 'react'
 import styles from './ChatView.module.css'
 
+/**
+ * 这次 keydown 是否应当**发送**？
+ *
+ * 抽成纯函数（而不是内联在 JSX 的 handler 里）是为了能被直接断言 —— 这两条规则
+ * 各有一个容易写错的边界，而它们**在渲染面上不可观测**（SSR 渲不出按键行为）：
+ *
+ *   - **IME 组合态**：中文/日文输入法里「按 Enter 选定候选词」与「按 Enter 发送」
+ *     是同一个键，组合期间 `key` 同样是 `'Enter'`。不拦就会在用户选词时把半截拼音
+ *     或未完成的正文发出去 —— 而占位文案恰恰在宣传「Enter 发送」，等于诱导踩坑。
+ *   - **Shift+Enter** 必须换行而不是发送。
+ *
+ * ⚠ `isComposing` 在 React 合成事件上**不存在**，必须从 `nativeEvent` 取
+ * （宿主自己的编辑器也这么判：`dsh-client-ui-conversation` 里
+ * `if (e.isComposing()) return`）。
+ *
+ * @param key         `KeyboardEvent.key`
+ * @param shiftKey    是否按住 Shift
+ * @param isComposing 原生事件的 IME 组合态（缺失/undefined 视为「不在组合中」，
+ *                    与浏览器把该属性默认置 false 一致）
+ * @returns 真 = 这一下 Enter 应该发送
+ */
+export function shouldSendOnKey(
+  key: string,
+  shiftKey: boolean,
+  isComposing: boolean | undefined,
+): boolean {
+  if (key !== 'Enter') return false
+  if (shiftKey) return false
+  if (isComposing === true) return false
+  return true
+}
+
 export interface ChatComposerProps {
   t: (key: string) => string
   /** 正在发送中（禁用输入并防止重复提交）。 */
@@ -47,8 +79,9 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Enter 发送、Shift+Enter 换行 —— 与聊天窗口一致的肌肉记忆。
-    if (event.key !== 'Enter' || event.shiftKey) return
+    // 决策落在 shouldSendOnKey（纯函数、可直测）：Enter 发送 / Shift+Enter 换行 /
+    // IME 组合态不发送。这里只负责把事件字段取出来。
+    if (!shouldSendOnKey(event.key, event.shiftKey, event.nativeEvent.isComposing)) return
     event.preventDefault()
     submit()
   }
