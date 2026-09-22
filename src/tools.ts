@@ -15,7 +15,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { Meeting, MeetingDecision, MeetingEdge, MeetingNode, MeetingUtterance, ReviewRecord, SkillDelivery, UserAction } from './types.ts'
 import { ACTIVE_NODE_STATUSES, AGGREGATOR_KEY, CAPTAIN_KEY } from './types.ts'
 import {
@@ -128,6 +129,41 @@ export function resolvePreset(
   if (key === '') return undefined
   return presets.find((preset) => preset.id === key)
     ?? presets.find((preset) => preset.name === key)
+}
+
+/**
+ * 设置卡批准记录文件（**单一实现**：plan_meeting 写、create 读，两处必须同址）。
+ *
+ * 为什么必须有这个文件（2026-09-23 审计）：`roundtable_create` 此前无任何前置门，
+ * 「先调 plan_meeting」只写在工具描述里 ⇒ 实测 **8/35 次 create（23%）绕过设置卡**，
+ * 用户在没确认席位/预算/模式的情况下会议已被建起。要立门，就必须有一个**可读的批准事实**；
+ * 只靠会话内变量会跨进程/跨重启失效（主持人可能换 session 继续）。
+ *
+ * 落点：stateRoot 下按主持人 session id 分文件（一个主持人同时只带一场会议）。
+ * 判据：只认 `name` 与会议名**逐字相等**的记录——名字不同即视为没确认过。
+ */
+export function planCardRecordFile(stateRoot: string, captainId: string): string {
+  return join(stateRoot, '_plan-cards', `${sanitizeKey(captainId)}.jsonl`)
+}
+
+/**
+ * 该主持人是否已就 `meetingName` 取得过设置卡批准。
+ *
+ * **fail-closed**：文件缺失/读失败/无匹配记录一律 false（要求显式绕过）。
+ * 这是刻意的取向——门的作用是"让跳过用户确认这件事必须说出口"，故默认不信。
+ */
+export async function hasPlanCardApproval(stateRoot: string, captainId: string, meetingName: string): Promise<boolean> {
+  try {
+    const raw = await readFile(planCardRecordFile(stateRoot, captainId), 'utf8')
+    const want = meetingName.trim()
+    return raw.split('\n').some((line) => {
+      if (line.trim() === '') return false
+      try {
+        const row = JSON.parse(line) as { name?: unknown }
+        return typeof row.name === 'string' && row.name.trim() === want
+      } catch { return false }
+    })
+  } catch { return false }
 }
 
 /** Resolved defaults for one meeting's settings card (R1). */
@@ -400,6 +436,10 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         enum: ['relay', 'direct'],
         description: 'skill 传递方式：relay=主持人中转（默认）；direct=专家自行用 skill 工具调用。',
       },
+      skip_plan_card: {
+        type: 'boolean',
+        description: '设置卡门禁的**显式绕过**（缺省 false）。仅在**确为脚本/探针/验证用途**、不需要用户确认席位与预算时置 true；置 true 会在会议记录里留痕（planCardSkipped），事后可查。正常流程不要用它 —— 前一步应是 roundtable_plan_meeting 且用户选了「按此创建」。',
+      },
     },
     output: {
       schema: {
@@ -414,11 +454,15 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           kb_path: { type: 'string', required: true },
           skills: { type: 'array', required: true, items: { type: 'string' } },
           skill_delivery: { type: 'string', required: true },
+          plan_card_skipped: { type: 'boolean', required: true },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `RoundTable meeting "${value.meeting_name}" created (id ${value.meeting_id}, mode ${value.mode}, budget ${value.max_rounds} rounds / ${value.max_tokens} tokens, kb ${value.kb_path === '' ? 'none' : value.kb_path}, skills ${value.skills.length === 0 ? 'none' : value.skills.join(', ')} via ${value.skill_delivery}). You are the captain. Add expert nodes with roundtable_add_node.`,
+        text: `RoundTable meeting "${value.meeting_name}" created (id ${value.meeting_id}, mode ${value.mode}, budget ${value.max_rounds} rounds / ${value.max_tokens} tokens, kb ${value.kb_path === '' ? 'none' : value.kb_path}, skills ${value.skills.length === 0 ? 'none' : value.skills.join(', ')} via ${value.skill_delivery}). You are the captain. Add expert nodes with roundtable_add_node.`
+          + (value.plan_card_skipped
+            ? ' ⚠ plan card SKIPPED (planCardSkipped recorded) — the user never confirmed this meeting\'s roster/budget through roundtable_plan_meeting.'
+            : ''),
       }],
     },
     async execute(args, exec) {
@@ -438,6 +482,24 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const kbPath = typeof args.kb_path === 'string' ? args.kb_path.trim() : ''
       const maxRounds = defaults.maxRounds
       const maxTokens = defaults.maxTokens
+      /*
+       * R1 设置卡门禁（2026-09-23 审计）。判因：本工具此前**无前置门**，绕过率实测 23%（8/35）。
+       * 语义（为什么不做成硬门）：插件作者需要建**验证会议**（实测 3 场 r-d-* 有正当理由），
+       * 硬门会挡住它；故改为**显式绕过**——把"我知道我在跳过用户确认"变成必须说出口的事实。
+       * 这不是新增限制，而是把既有的 R1 纪律（usage 第 1 条）从文案变成判据。
+       */
+      const skipPlanCard = args.skip_plan_card === true
+      if (!skipPlanCard) {
+        const approved = await hasPlanCardApproval(stateRoot, captain.id, meetingName)
+        if (!approved) {
+          throw new Error(
+            `roundtable: meeting "${meetingName}" has no confirmed settings card — `
+            + 'call roundtable_plan_meeting first and let the user pick "按此创建" (R1: never create a meeting straight away). '
+            + 'If this is a script/probe/verification meeting that genuinely needs no user confirmation, '
+            + 'pass skip_plan_card: true — it is recorded as planCardSkipped so the skip stays auditable.',
+          )
+        }
+      }
       return withMeetingLock(captainLockKey(stateRoot, captain.id), async () => {
         const current = await findMeetingByCaptain(stateRoot, captain.id)
         if (current !== undefined) {
@@ -472,6 +534,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             status: 'active',
             createdAt: now,
             updatedAt: now,
+            ...(skipPlanCard ? { planCardSkipped: true } : {}),
           }
           meeting.charter = buildCharter(meeting)
           await writeMeeting(stateRoot, meeting)
@@ -484,6 +547,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             kb_path: meeting.kbPath ?? '',
             skills: meeting.skills ?? [],
             skill_delivery: meeting.skillDelivery ?? skillDelivery,
+            plan_card_skipped: meeting.planCardSkipped === true,
           }
         })
       })
@@ -509,6 +573,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             preset: { type: 'string', description: '可选：用户自建角色预设的 id 或名称（见 roundtable_list_presets）。卡片会显示该预设解析后的 role 与路由。' },
             provider: { type: 'string', description: '模型路由（与 model 同时给出才生效；缺省继承主持人当前路由）。' },
             model: { type: 'string', description: '模型名。' },
+            reasoning_effort: { type: 'string', description: '可选思考强度（宿主档位 id，如 high/medium/low）。缺省 = 用预设自带的档位，预设也没有则继承主持人。' },
           },
         },
       },
@@ -555,7 +620,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const skills = normalizeSkillNames(args.skills)
       const experts = Array.isArray(args.experts)
         ? (args.experts as unknown[]).flatMap((raw) => {
-            const entry = raw as { key?: unknown; role?: unknown; preset?: unknown; provider?: unknown; model?: unknown }
+            const entry = raw as { key?: unknown; role?: unknown; preset?: unknown; provider?: unknown; model?: unknown; reasoning_effort?: unknown }
             const key = String(entry?.key ?? '').trim()
             if (key === '') return []
             // R-A：卡片必须显示**解析后**的 role/路由，否则用户确认的是一份与
@@ -578,11 +643,20 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             const model = entry?.model !== undefined
               ? String(entry.model)
               : (preset?.provider !== undefined && preset.model !== undefined ? preset.model : undefined)
+            /* 档位解析（2026-09-23 审计 · 预设闭环）：显式 > 预设自带 > 空（继承主持人）。
+             * 与 `add_node` 的同名逻辑**必须同序**——否则卡片上看到的强度与实际建节点不一致，
+             * 用户确认的就是一份假草案（与 R-A 的"卡片必须显示解析后的 role"同一条纪律）。 */
+            const effort = entry?.reasoning_effort !== undefined && String(entry.reasoning_effort).trim() !== ''
+              ? String(entry.reasoning_effort).trim()
+              : (preset?.reasoningEffort !== undefined && String(preset.reasoningEffort).trim() !== ''
+                  ? String(preset.reasoningEffort).trim()
+                  : undefined)
             return [{
               key,
               role,
               provider,
               model,
+              reasoningEffort: effort,
               preset: presetRef === '' ? undefined : presetRef,
               unresolved: unresolved === '' ? undefined : unresolved,
             }]
@@ -656,6 +730,22 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       }
       const item = answer.answers.find((candidate) => candidate.id === questionId)
       const confirmation = resolvePlanConfirmation(item)
+      /*
+       * 设置卡批准留痕（2026-09-23 审计 · R1 门禁）。
+       * 判因：`roundtable_create` 此前**无任何前置门**，「先调 plan_meeting」只写在
+       * description 里（措辞为 Preferred flow / Call it for EVERY meeting），实测
+       * **8/35 次 create 绕过设置卡（23%）**——用户在没有确认席位/预算/模式机会的情况下
+       * 会议已被建起，与本插件自称的 R1 纪律（NEVER create a meeting straight away）冲突。
+       * ⇒ 批准事实落盘到用户级记录文件，供 create 校验；绕过必须**显式**（skip_plan_card）。
+       * 存档位置与 create 的读取位置由 `planCardRecordFile` 单一实现给出（防两处路径漂移）。
+       */
+      if (confirmation.kind === 'approved') {
+        try {
+          const recFile = planCardRecordFile(stateRootOf(workspaceOf(captain), config.stateDir), captain.id)
+          await mkdir(dirname(recFile), { recursive: true })
+          await appendFile(recFile, `${JSON.stringify({ name: draft.name, at: Date.now() })}\n`, 'utf8')
+        } catch { /* 留痕失败不阻断卡片本身：create 侧会按其缺失要求显式绕过 */ }
+      }
       return {
         decision: confirmation.kind,
         user_note: confirmation.kind === 'revise' || confirmation.kind === 'unavailable' ? confirmation.note : '',
@@ -841,7 +931,16 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_connect',
-    description: 'Create a directed channel between two participants (a node key, "captain", or "aggregator"). Direction "forward" = pipeline hand-off; "bidirectional" = debate channel (both sides may address each other).',
+    /*
+     * ⚠ 双真相修复（2026-09-23 审计 · 28 场实测）：本描述此前教主持人「画协作拓扑」，
+     * 而 2026-09-19 的三模式重构（commit 8088c2f）把单线制下的 edges 从总纲里**刻意移除**
+     * （`charter.ts:33` 原文：「单线制下刻意**不拼** roster/edges —— 名册段本身就是"还有别人"的泄露面」），
+     * 且 `send_message` 全程**不读 edges`（只校验名单 + 模式策略）。
+     * ⇒ 在 orchestrated/redteam（27/28 场）下，边**既不进专家上下文、也不影响送达**——
+     *   实测代价：18 场会议画了 122 条边，专家一个字都读不到；边使用从重构前的 113 骤降到 13。
+     * 本描述改为**按模式如实**：单线制下明说「装饰」，egalitarian 下明说「真通道」。
+     */
+    description: 'Create a directed channel between two participants (a node key, "captain", or "aggregator"). ⚠ MODE-DEPENDENT: in orchestrated/redteam this is DECORATION ONLY — edges are deliberately kept out of the experts\' charter (they must not learn about each other) and roundtable_send_message does NOT consult them, so delivery is unaffected; use the dispatch plan\'s depends_on to express ordering instead. In egalitarian mode edges DO reach the experts (the charter lists them, and nodes may address each other directly), so there they encode who may talk to whom. Direction "forward" = pipeline hand-off; "bidirectional" = debate channel (both sides may address each other).',
     parameters: {
       from: { type: 'string', required: true, description: 'Source endpoint: a node key, "captain", or "aggregator".' },
       to: { type: 'string', required: true, description: 'Target endpoint: a node key, "captain", or "aggregator".' },
@@ -1398,6 +1497,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         status: meeting.status,
         viewer: identity.kind === 'captain' ? CAPTAIN_KEY : identity.name,
         round: meeting.round,
+        /* R1 留痕的消费面（2026-09-23 审计）：只写不读等于没写。主持人每轮必读本工具，
+         * 故这是"本场会议是否跳过用户确认"最自然的可见点。 */
+        plan_card_skipped: meeting.planCardSkipped === true,
         kb_path: meeting.kbPath ?? '',
         skills: meeting.skills ?? [],
         skill_delivery: meeting.skillDelivery ?? config.getSkillDelivery?.() ?? 'relay',
@@ -1975,27 +2077,51 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         properties: {
           closed: { type: 'boolean', required: true },
           meeting_name: { type: 'string', required: true },
+          dispute_hint: { type: 'string', required: true },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: `Meeting "${value.meeting_name}" closed.` }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: `Meeting "${value.meeting_name}" closed.${value.dispute_hint === '' ? '' : `\n${value.dispute_hint}`}`,
+      }],
     },
     async execute(_args, exec) {
       const captain = requireCaptain(exec)
       const stateRoot = stateRootOf(workspaceOf(captain), config.stateDir)
       const located = await locateCaptainMeeting(stateRoot, captain.id)
-      const nodes = await withCaptainLock(stateRoot, located.id, captain.id, 'close it', async (fresh) => {
+      /*
+       * 分歧处置对账提示（2026-09-23 审计 · R3）。
+       * 判因：28 场会议只有 22 条 decisions（**24 场为零**），而那次样本会议明确产出
+       * 5 条待拍板项——**全部写在方案正文里，未走 request_decision**。后果：专家提出的
+       * 反对意见最终被怎么处理，**没有任何记录**；主持人靠自觉收敛 ⇒ 反对意见静默丢弃，
+       * 正是用户最在意的「拆东墙补西墙」的温床。
+       * 语义：**只提示不阻断**（close 必须成功——「只问一个专家一个问题」是正当用法），
+       * 且只在**有讨论无决定**时触发（避免给安静的单席会议制造噪音）。
+       */
+      const stats = await withCaptainLock(stateRoot, located.id, captain.id, 'close it', async (fresh) => {
         const roster = fresh.nodes.map((node) => ({ ...node }))
         for (const node of fresh.nodes) {
           if (node.status !== 'removed') node.status = 'removed'
         }
         fresh.status = 'ended'
         await writeMeeting(stateRoot, fresh)
-        return roster
+        const utterances = await readTranscript(stateRoot, fresh.id)
+        return {
+          roster,
+          speakers: new Set(utterances.filter((u) => u.nodeKey !== CAPTAIN_KEY).map((u) => u.nodeKey)).size,
+          decisions: fresh.decisions.length,
+        }
       })
-      for (const node of nodes) {
+      for (const node of stats.roster) {
         if (node.id !== '') interruptNode(ctx, captain, node.id)
       }
-      return { closed: true, meeting_name: located.name }
+      // 阈值：≥3 位专家发过言 且 0 条决策 ⇒ 明显是"讨论了但没人拍板"的形态。
+      const disputeHint = stats.speakers >= 3 && stats.decisions === 0
+        ? `⚠ ${stats.speakers} experts spoke but 0 decisions were recorded — the fate of their objections is unrecorded. `
+          + 'Before finishing, either run the `dispute` preset seat (分歧归位: endorse/reject/untouched, untouched named one by one) '
+          + 'or fold every [建议决策] line into one roundtable_request_decision. Do not treat "nobody raised it again" as agreement.'
+        : ''
+      return { closed: true, meeting_name: located.name, dispute_hint: disputeHint }
     },
   }))
 
@@ -2113,6 +2239,10 @@ function renderStatus(value: Record<string, unknown>): string {
     : []
   const lines: string[] = [
     `Meeting "${String(value.meeting_name)}" (id ${String(value.meeting_id)}, mode ${String(value.mode)}, status ${String(value.status)}, round ${String(value.round)})`,
+    /* R1 留痕渲染（2026-09-23）：只在**真跳过**时出，避免正常会议被噪音淹没。 */
+    ...(value.plan_card_skipped === true
+      ? ['⚠ plan_card_skipped: this meeting was created WITHOUT the settings card — the user never confirmed its roster/budget/mode (R1).']
+      : []),
     `Knowledge base path: ${String(value.kb_path ?? '') === '' ? '(none)' : String(value.kb_path)}`,
     `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,
     `Nodes (${nodes.length}):`,
@@ -2120,7 +2250,14 @@ function renderStatus(value: Record<string, unknown>): string {
       const effort = String(node.reasoning_effort ?? '')
       return `  - ${String(node.key)} [${String(node.role ?? '')}] ${String(node.status)}/${String(node.activity ?? '')} · ${String(node.provider ?? '')}/${String(node.model ?? '')}${effort === '' ? '' : ` @${effort}`}`
     }),
-    `Edges (${edges.length}):`,
+    /*
+     * ⚠ 双真相修复（2026-09-23 审计）：Edges 段此前平铺展示，读者会以为它在起作用。
+     * 实测：单线制下 `charter.ts:33` **刻意不拼** edges、`send_message` 也不读 edges
+     * ⇒ 边对专家与送达均不可见。此处按模式**如实标注**（同一事实不得两个说法）。
+     */
+    String(value.mode) === 'egalitarian'
+      ? `Edges (${edges.length}) — LIVE in egalitarian: the charter lists them and nodes may address each other directly:`
+      : `Edges (${edges.length}) — ⚠ DECORATION in ${String(value.mode)}: not in the experts' charter (they must not learn about each other) and not consulted by send_message; use the plan's depends_on for ordering:`,
     ...edges.map((edge) => `  - ${String(edge.from)} → ${String(edge.to)} (${String(edge.direction)})`),
     `Pending decisions: ${pending.length === 0 ? 'none' : pending.map((decision) => `"${String(decision.question)}"`).join('; ')}`,
     `Pending user actions (${pendingActions.length}): ${pendingActions.length === 0 ? 'none' : pendingActions.map((action) => `"${String(action.text)}"`).join('; ')}`,
@@ -2144,9 +2281,19 @@ function renderStatus(value: Record<string, unknown>): string {
     ...(poolCandidates.length === 0
       ? [`  ${poolTotal === 0 && value.viewer !== CAPTAIN_KEY ? '(captain only)' : '(none defined — write the role yourself and say it is ad-hoc)'}`]
       : poolCandidates.map((candidate) => {
-          const route = String(candidate.provider ?? '') === '' || String(candidate.model ?? '')
-            ? '（继承主持人路由）'
-            : `${String(candidate.provider)}/${String(candidate.model)}`
+          /*
+           * ⚠ 恒真缺陷修复（2026-09-23 全量审计 · 真机复现）。
+           * 原式：`String(candidate.provider ?? '') === '' || String(candidate.model ?? '')`
+           *   —— 右侧**漏了 `=== ''`**，于是它返回的是 model 字符串本身（truthy），
+           *   整个 `||` 恒为真 ⇒ **所有预设的路由都被显示成「（继承主持人路由）」**，
+           *   而 `roundtable_list_presets` 对同一条预设显示 `dshapi/deepseek-v4.1-flash`。
+           *   同一份数据、两个工具、两个说法 —— 典型双真相，且**机检抓不到**
+           *   （渲染层字符串，既有测试只断言"字段进了 JSON"）。
+           * 实测：28/28 条预设全部误报为"继承"；主持人据此以为候选池没有路由信息，
+           *   从而放弃按预设路由上席 ⇒ 预设的 provider/model 在**决策环节**等于失效。
+           */
+          const hasRoute = String(candidate.provider ?? '') !== '' && String(candidate.model ?? '') !== ''
+          const route = hasRoute ? `${String(candidate.provider)}/${String(candidate.model)}` : '（继承主持人路由）'
           const effort = String(candidate.reasoning_effort ?? '') === '' ? '' : ` @${String(candidate.reasoning_effort)}`
           return `  - ${String(candidate.id)} | ${String(candidate.name)} | ${route}${effort}${candidate.on_stage === true ? ' | ON STAGE' : ''}`
         })),

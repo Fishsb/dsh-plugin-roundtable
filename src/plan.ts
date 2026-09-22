@@ -76,7 +76,7 @@ export interface SkillListEntry {
  */
 export function formatMeetingDraft(
   draft: MeetingDraft,
-  experts: readonly { key: string; role?: string; provider?: string; model?: string; preset?: string; unresolved?: string }[],
+  experts: readonly { key: string; role?: string; provider?: string; model?: string; preset?: string; unresolved?: string; reasoningEffort?: string }[],
   options: { revised?: boolean; availableSkills?: readonly SkillListEntry[] } = {},
 ): string {
   const modeLabel = draft.mode === 'orchestrated'
@@ -98,7 +98,17 @@ export function formatMeetingDraft(
           : expert.preset !== undefined
             ? `  ← 来自预设 \`${expert.preset}\``
             : ''
-        return `${index + 1}. \`${expert.key}\` — ${role} — ${route}${origin}`
+        /*
+         * 档位可见性（2026-09-23 审计 · 预设闭环缺口）：
+         * `add_node` / `list_presets` / `status` 三处都带 reasoningEffort，**唯独设置卡没有**
+         * ⇒ 用户在确认「按此创建」时看不到专家将跑在什么强度上，而预设自带的档位
+         * （`reasoningEffort`）会经 add_node 静默生效。确认一份看不到实际参数的卡片
+         * 就是假确认——故此处补上（空 = 继承主持人，显式写出而非留白）。
+         */
+        const effort = expert.reasoningEffort !== undefined && expert.reasoningEffort.trim() !== ''
+          ? ` @${expert.reasoningEffort.trim()}`
+          : ' @继承'
+        return `${index + 1}. \`${expert.key}\` — ${role} — ${route}${effort}${origin}`
       }).join('\n')
   const skills = draft.skills.length === 0
     ? '（未选）'

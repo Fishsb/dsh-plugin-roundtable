@@ -265,6 +265,16 @@ export interface Meeting {
   /** skill 传递方式（创建时固化）：relay=主持人中转；direct=专家自行调用。 */
   skillDelivery?: SkillDelivery
   status: MeetingStatus
+  /**
+   * R1 留痕（2026-09-23 审计）：本场会议**跳过了设置卡**（`create` 带
+   * `skip_plan_card: true`）——用户从未通过 `roundtable_plan_meeting` 确认过
+   * 席位/预算/模式。缺省省略（正常流程不写此字段）。
+   *
+   * 用途：让"这场会议没让用户确认过"成为**事后可查**的事实。审计实测绕过率
+   * 8/35 = 23%，此前**无任何信号**能分辨——与那次圆桌会议诊断守藏项目得到的
+   * 「留痕字段必须有消费面」是同族缺陷。
+   */
+  planCardSkipped?: boolean
   createdAt: number
   updatedAt: number
 }
