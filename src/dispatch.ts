@@ -130,7 +130,17 @@ export function normalizePlanItems(raw: unknown): RoundPlanItem[] {
           .map((dependency) => String(dependency ?? '').trim().slice(0, MAX_ID_CHARS))
           .filter((dependency) => dependency !== '')
       : []
-    return [{ id, task, owner, dependsOn }]
+    // 回归风险自检（2026-09-23）：显式空串与缺省**同义**（都算"没填"），
+    // 避免"填了个空字符串"被当成做过自检——那是本插件在剿的假绿形态。
+    const riskRaw = candidate.regressionRisk ?? candidate.regression_risk
+    const regressionRisk = String(riskRaw ?? '').trim().slice(0, MAX_TASK_CHARS)
+    return [{
+      id,
+      task,
+      owner,
+      dependsOn,
+      ...(regressionRisk === '' ? {} : { regressionRisk }),
+    }]
   })
 }
 
@@ -638,6 +648,12 @@ export function buildRoundSignals(input: RoundSignalsInput): {
   out_of_scope: { from_seat: string; item: string; suggested_role: string; round: number }[]
   out_of_scope_total: number
   out_of_scope_hidden: number
+  /** 本轮计划条数（0 = 无计划，与 `plan_recorded:false` 同义，供风险面分母用）。 */
+  plan_items: number
+  /** 做了回归风险自检的项数（分母 = `plan_items`）。 */
+  risk_declared: number
+  /** **未**做回归风险自检的项 id（只呈现不判定：机器判不了哪条需要自检）。 */
+  risk_items_missing: string[]
 } {
   const { round, plan, liveSeatKeys, utterances } = input  // 计划承接席（席位口径）：
   //  - `owner` 是裸席位 key ⇒ 原样进集；
@@ -751,5 +767,20 @@ export function buildRoundSignals(input: RoundSignalsInput): {
     out_of_scope: toHandoffRows(handoffs, HANDOFF_RENDER_LIMIT),
     out_of_scope_total: handoffs.length,
     out_of_scope_hidden: Math.max(0, handoffs.length - HANDOFF_RENDER_LIMIT),
+    /*
+     * 回归风险自检的**可见面**（2026-09-23 · 用户要求「避免拆东墙补西墙」）。
+     *
+     * ⚠ 刻意**不判定**：机器判不了"哪条工作项是改动型"——按动词关键词分类是脆弱
+     *   启发式（"分析接口" 含"分析"却可能要改代码；"实现 X" 明明是改动却可能被
+     *   动词表漏掉），会造出假红假绿。故这里只做**计数与点名**：
+     *   把"哪几项没做自检"摆出来 ⇒ 缺口可见 ⇒ 主持人与用户自己判断要不要追问。
+     *   这与本插件既有的「留痕字段必须有消费面」是同一取向：不替人下结论，但绝不让
+     *   缺口静默消失。
+     */
+    plan_items: plan === undefined ? 0 : plan.items.length,
+    risk_declared: plan === undefined ? 0 : plan.items.filter((item) => (item.regressionRisk ?? '') !== '').length,
+    risk_items_missing: plan === undefined
+      ? [] as string[]
+      : plan.items.filter((item) => (item.regressionRisk ?? '') === '').map((item) => item.id),
   }
 }

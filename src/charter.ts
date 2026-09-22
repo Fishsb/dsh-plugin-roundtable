@@ -58,6 +58,23 @@ export function buildCharter(meeting: Meeting): string {
     '',
     '一、会议背景与核心目标',
     meeting.goal.trim() === '' ? '（未提供，以主持人现场说明为准）' : meeting.goal,
+    /*
+     * 边界声明（2026-09-23 · 用户全流程要求「避免方案拆东墙补西墙」）。
+     * 三项随总纲进**每个专家**的 persona ⇒ 「不许动什么」成为全席共享的判据，
+     * 而不是只活在主持人脑内。缺省时不给空标题（避免"有段落无内容"的假完整）。
+     */
+    ...(meeting.boundary === undefined
+      ? []
+      : [
+          '',
+          '一之二、本会议的边界声明（**改动前必须对照**）',
+          `- 要解决的现象：${meeting.boundary.goal.trim() === '' ? '（未声明）' : meeting.boundary.goal.trim()}`,
+          `- 算解决的标准：${meeting.boundary.done.trim() === '' ? '（未声明）' : meeting.boundary.done.trim()}`,
+          `- **明确不做 / 不许动**：${meeting.boundary.notDoing.trim() === '' ? '（未声明）' : meeting.boundary.notDoing.trim()}`,
+          '- ⚠ 提出任何改动时，须自答一句：「这条改动会不会碰坏上面『不许动』里的东西？」',
+          '  若会，必须在 [核心产出] 里点明**碰了哪面墙、用什么证据确认没碰坏**；没有证据就标「未验证」。',
+          '  禁止用"顺带修好了"掩盖越界改动 —— 那是拆东墙补西墙的典型形态。',
+        ]),
     '',
     ...(meeting.mode === 'egalitarian' ? roundTableTeam : singleLineTeam),
     '',

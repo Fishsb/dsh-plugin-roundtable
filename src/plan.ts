@@ -9,7 +9,7 @@
  * @module dsh-plugin-roundtable/plan
  */
 
-import type { SkillDelivery } from './types.ts'
+import type { MeetingBoundary, SkillDelivery } from './types.ts'
 
 /** skill 的两种传递方式（D5）。单一来源：types.ts。 */
 export type { SkillDelivery }
@@ -39,6 +39,11 @@ export interface MeetingDraft {
   maxTokens: number
   /** 知识库目录（可空）：主持人按需读取其中文件转交专家。 */
   kbPath: string
+  /**
+   * 会议边界声明（2026-09-23 · 用户全流程要求）。
+   * 缺省 = 主持人未声明 ⇒ 卡片会显式警示「边界未声明」，并提示先问用户。
+   */
+  boundary?: MeetingBoundary
   /** 本次会议选中的 skill 名称清单（可为空）。 */
   skills: string[]
   /** skill 传递方式：relay=主持人中转；direct=专家自行调用。 */
@@ -116,6 +121,7 @@ export function formatMeetingDraft(
   const deliveryLabel = draft.skillDelivery === 'relay'
     ? 'relay（主持人中转：主持人读正文后按需转交，省 token、行为可预测）'
     : 'direct（专家直接调用：专家自己用 `skill` 工具加载，更自主、各自读取）'
+  const boundary = draft.boundary
   return [
     `# 会议设置确认 · ${draft.name.trim() === '' ? '（未命名）' : draft.name.trim()}`,
     '',
@@ -140,6 +146,33 @@ export function formatMeetingDraft(
     '',
     '## 议题 / 目标',
     draft.goal.trim() === '' ? '（未提供，以主持人现场说明为准）' : draft.goal.trim(),
+    '',
+    /*
+     * 边界确认块（2026-09-23 · 用户要求「边界不清晰或目标模糊要先和用户沟通明确，
+     * 再开始后续流程」）。判因（实测 · 会话 690079f3）：主持人把用户含糊的
+     * 「容量门」自行转述成一个具体定义后直接开会，**会议结束后**才澄清，
+     * 付出一整轮作废的代价；主持人自认「全仓查无你的原话，只有转述」。
+     *
+     * 为什么落在卡片上而不是新增一个工具：卡片是用户**唯一必看**的一屏（R1 机制），
+     * 零新增交互步骤、零 token 增量（卡片本来就渲染），且它正是"主持人转述 → 用户核对"
+     * 的那个交接点。三项与用户自建项目治理的 doing/next/notDoing/exit 同构。
+     */
+    '## 边界确认（★ 请核对你原话是否被准确转述）',
+    '主持人把你的话转述成了上面这段。**若与你原意不符，请在「我要修改」里写回你的原话。**',
+    ...(boundary === undefined
+      ? [
+          '⚠ **本次未声明边界**（目标 / 完成标准 / 明确不做 三项都没填）。',
+          '  ⇒ 若你本轮的诉求本身就不明确，请先在「我要修改」里用一句话说清，**不要带着模糊目标开会**——',
+          '     那正是历史上一整轮会议作废的原因。',
+        ]
+      : [
+          `- **要解决的现象**：${boundary.goal.trim() === '' ? '⚠（未填）' : boundary.goal.trim()}`,
+          `- **算解决的标准**：${boundary.done.trim() === '' ? '⚠（未填）' : boundary.done.trim()}`,
+          `- **明确不做 / 不许动**：${boundary.notDoing.trim() === '' ? '⚠（未填）' : boundary.notDoing.trim()}`,
+          '',
+          '> 「明确不做」这一项就是**防拆东墙的判据**：会议过程中每次改动都要对照它自检',
+          '> 「有没有把别处弄坏 / 有没有越界」。填不出它，说明边界还没谈清。',
+        ]),
     '',
     '---',
     '选「我要修改」时，请在输入框里写清改什么（例：把 reviewer 换成 zai-coding-cn/glm-5.2、预算降到 5 轮、加上 skill `pdf-fill`）。主持人据此更新草案后**会再弹一次**这张卡片。',

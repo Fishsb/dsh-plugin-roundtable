@@ -436,6 +436,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         enum: ['relay', 'direct'],
         description: 'skill 传递方式：relay=主持人中转（默认）；direct=专家自行用 skill 工具调用。',
       },
+      boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。' },
+      boundary_done: { type: 'string', description: '判定「已解决」的标准。' },
+      boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（防拆东墙的判据）。' },
       skip_plan_card: {
         type: 'boolean',
         description: '设置卡门禁的**显式绕过**（缺省 false）。仅在**确为脚本/探针/验证用途**、不需要用户确认席位与预算时置 true；置 true 会在会议记录里留痕（planCardSkipped），事后可查。正常流程不要用它 —— 前一步应是 roundtable_plan_meeting 且用户选了「按此创建」。',
@@ -489,6 +492,13 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
        * 这不是新增限制，而是把既有的 R1 纪律（usage 第 1 条）从文案变成判据。
        */
       const skipPlanCard = args.skip_plan_card === true
+      /* 边界声明（2026-09-23）：与 plan_meeting 同一折法（三项全空 = 未声明）。 */
+      const cGoal = String(args.boundary_goal ?? '').trim()
+      const cDone = String(args.boundary_done ?? '').trim()
+      const cNot = String(args.boundary_not_doing ?? '').trim()
+      const boundary = (cGoal === '' && cDone === '' && cNot === '')
+        ? undefined
+        : { goal: cGoal, done: cDone, notDoing: cNot }
       if (!skipPlanCard) {
         const approved = await hasPlanCardApproval(stateRoot, captain.id, meetingName)
         if (!approved) {
@@ -530,6 +540,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             round: 0,
             ...(kbPath === '' ? {} : { kbPath }),
             ...(requestedSkills.length === 0 ? {} : { skills: requestedSkills }),
+            ...(boundary === undefined ? {} : { boundary }),
             skillDelivery,
             status: 'active',
             createdAt: now,
@@ -560,6 +571,13 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
     parameters: {
       name: { type: 'string', required: true, description: '草案里的会议名称（也是会议 id 的来源）。' },
       goal: { type: 'string', required: true, description: '会议背景与核心目标（总纲第一节）。' },
+      /**
+       * 边界声明三参数（2026-09-23 · 用户全流程要求）。
+       * 与用户自建项目治理的 doing/next/notDoing/exit 同构；`not_doing` 即防拆东墙的判据。
+       */
+      boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。填不出就说明边界不清 —— 先回问用户，不要带着模糊目标开会。' },
+      boundary_done: { type: 'string', description: '判定「已解决」的标准：什么情况下算完成。' },
+      boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（= 不许拆的那面墙）。会议全程与每次改动都要对照它自检有没有把别处弄坏。' },
       mode: { type: 'string', enum: ['orchestrated', 'egalitarian', 'redteam'], description: '协作模式；缺省用设置页的默认模式。' },
       experts: {
         type: 'array',
@@ -618,6 +636,15 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const goal = String(args.goal ?? '').trim()
       const kbPath = typeof args.kb_path === 'string' ? args.kb_path.trim() : ''
       const skills = normalizeSkillNames(args.skills)
+      /* 边界声明（2026-09-23）：三项**任一非空**即视为已声明；全空 = undefined
+       * （卡片据此显式警示"边界未声明"，见 plan.ts）。不在这里强制必填——
+       * 强制会逼出凑数文字，而卡片上的显式警示 + 用户核对才是真正的闸。 */
+      const bGoal = String(args.boundary_goal ?? '').trim()
+      const bDone = String(args.boundary_done ?? '').trim()
+      const bNot = String(args.boundary_not_doing ?? '').trim()
+      const boundary = (bGoal === '' && bDone === '' && bNot === '')
+        ? undefined
+        : { goal: bGoal, done: bDone, notDoing: bNot }
       const experts = Array.isArray(args.experts)
         ? (args.experts as unknown[]).flatMap((raw) => {
             const entry = raw as { key?: unknown; role?: unknown; preset?: unknown; provider?: unknown; model?: unknown; reasoning_effort?: unknown }
@@ -671,6 +698,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         kbPath,
         skills,
         skillDelivery: defaults.skillDelivery,
+        ...(boundary === undefined ? {} : { boundary }),
       }
       // 清单读取失败一律降级为空（skills.ts 内部已兜底）。
       const available = await listInvocableSkills(ctx, workspace, exec.signal)
@@ -1038,6 +1066,14 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             task: { type: 'string', required: true, description: '这一项要做什么（一句话，可核）。' },
             owner: { type: 'string', required: true, description: '承接席：在场席 key，或 new:<预设 id>。' },
             depends_on: { type: 'array', items: { type: 'string' }, description: '必须先完成的本轮工作项 id；留空 = 与同为空的项并行。' },
+            /**
+             * 回归风险自检（2026-09-23 · 用户要求「避免方案拆东墙补西墙」）。
+             * ⚠ **只呈现、不判定**：机器判不了"哪条是改动型工作"——按动词关键词
+             *   分类是脆弱启发式，会造出假红假绿（本插件反复在剿的形态）。
+             *   故留空**不会被拒**；但 `round_signals` 会列出"哪几项没做自检"，
+             *   让缺口**可见**，由主持人/人决定是否追问。
+             */
+            regression_risk: { type: 'string', description: '这条工作**可能碰坏什么**（既有行为/文件/判据），以及打算怎么确认没碰坏。做了改动的项应当填；纯读取/勘察类可留空（留空会被 round_signals 列为"未自检"）。' },
           },
         },
       },
@@ -1500,6 +1536,15 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         /* R1 留痕的消费面（2026-09-23 审计）：只写不读等于没写。主持人每轮必读本工具，
          * 故这是"本场会议是否跳过用户确认"最自然的可见点。 */
         plan_card_skipped: meeting.planCardSkipped === true,
+        /* 边界声明（2026-09-23）：进每轮信息面，使"不许动什么"在会议全程可查。 */
+        boundary: meeting.boundary === undefined
+          ? { declared: false, goal: '', done: '', not_doing: '' }
+          : {
+              declared: true,
+              goal: meeting.boundary.goal,
+              done: meeting.boundary.done,
+              not_doing: meeting.boundary.notDoing,
+            },
         kb_path: meeting.kbPath ?? '',
         skills: meeting.skills ?? [],
         skill_delivery: meeting.skillDelivery ?? config.getSkillDelivery?.() ?? 'relay',
@@ -2243,6 +2288,21 @@ function renderStatus(value: Record<string, unknown>): string {
     ...(value.plan_card_skipped === true
       ? ['⚠ plan_card_skipped: this meeting was created WITHOUT the settings card — the user never confirmed its roster/budget/mode (R1).']
       : []),
+    /* 边界声明渲染（2026-09-23）：未声明时**显式警示**（不静默），使"带着模糊目标开工"
+     * 这件事在每轮都看得见。 */
+    ...(() => {
+      const b = (value.boundary ?? {}) as Record<string, unknown>
+      if (b.declared !== true) {
+        return ['⚠ boundary: NOT declared — if the user\'s request was vague, ask them to pin down goal / done-standard / what NOT to touch BEFORE dispatching. Do not paraphrase for them.']
+      }
+      const nn = String(b.not_doing ?? '')
+      return [
+        `Boundary — goal: ${String(b.goal ?? '') === '' ? '(unset)' : String(b.goal)}`,
+        `         done: ${String(b.done ?? '') === '' ? '(unset)' : String(b.done)}`,
+        `    NOT doing: ${nn === '' ? '(unset — no wall declared, so nothing is protected)' : nn}`,
+        ...(nn === '' ? [] : ['    ⚠ Any change must be checked against the NOT-doing line: name which wall it could hit and the evidence it did not.']),
+      ]
+    })(),
     `Knowledge base path: ${String(value.kb_path ?? '') === '' ? '(none)' : String(value.kb_path)}`,
     `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,
     `Nodes (${nodes.length}):`,
@@ -2306,6 +2366,15 @@ function renderStatus(value: Record<string, unknown>): string {
         // 无法自行核对"这轮到底该派给谁"（`planned_owners` 曾被算出来却没渲染 ——
         // 字段进了 JSON、模型看不见，等于闸没接）。
         `  planned owners (seat level): ${plannedOwners.length === 0 ? '(none — every item is a new:<preset> gap)' : plannedOwners.join(', ')}`,
+        /*
+         * 回归风险自检的渲染（2026-09-23 · 用户要求「避免拆东墙补西墙」）。
+         * 分母 always render（同 `planned_owners` 的教训：只在"有缺口时"打印，
+         * 读者就看不到比较基准）。**只在有条目未自检时**出警示行，避免正常轮次被噪音淹没。
+         */
+        `  regression self-check: ${String(signals.risk_declared ?? 0)}/${String(signals.plan_items ?? 0)} item(s) declared what they might break`,
+        ...((Array.isArray(signals.risk_items_missing) ? signals.risk_items_missing as string[] : []).length === 0
+          ? []
+          : [`    ⚠ not self-checked: ${(signals.risk_items_missing as string[]).join(', ')} — if any of these touches code or config, ask what it might break BEFORE accepting the result (拆东墙补西墙 is what this catches)`]),
       ] : []),
       ...(undispatchedOwners.length === 0 && unplannedDispatches.length === 0 ? [] : [
         `  plan vs actual dispatches: ⚠ undispatched owners [${undispatchedOwners.join(', ')}]; unplanned dispatches [${unplannedDispatches.join(', ')}]`,
@@ -2462,6 +2531,14 @@ export function renderMeetingMarkdown(
   out.push('---', '')
 
   out.push('## 议题 / 目标', '', meeting.goal.trim() === '' ? '（未提供）' : meeting.goal.trim(), '')
+  /* 边界声明进导出物（2026-09-23）：交付给人看的记录里必须能看到"当初约定了什么不做"，
+   * 否则事后复盘无法判断"有没有越界"——缺了它，防拆东墙就只活在会议进行时。 */
+  if (meeting.boundary !== undefined) {
+    out.push('## 边界声明', '')
+    out.push(`- **要解决的现象**：${meeting.boundary.goal.trim() === '' ? '（未声明）' : meeting.boundary.goal.trim()}`)
+    out.push(`- **算解决的标准**：${meeting.boundary.done.trim() === '' ? '（未声明）' : meeting.boundary.done.trim()}`)
+    out.push(`- **明确不做 / 不许动**：${meeting.boundary.notDoing.trim() === '' ? '（未声明）' : meeting.boundary.notDoing.trim()}`, '')
+  }
 
   out.push(`## 专家名单（${meeting.nodes.length}）`, '')
   // 静默标记（批次 B ②）：名单行内标出"派了但没回"的席位，

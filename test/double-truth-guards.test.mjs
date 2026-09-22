@@ -152,3 +152,94 @@ test('⑤-b 路由渲染的判据必须与 list_presets 同口径（同数据不
   assert.match(tools, /const hasRoute = String\(candidate\.provider \?\? ''\) !== '' && String\(candidate\.model \?\? ''\) !== ''/, 'talent_pool 须用等价判据')
   assert.match(tools, /const route = preset\.provider === '' \|\| preset\.model === ''/, 'list_presets 判据须保持（作为同口径的另一半）')
 })
+
+/* ── ⑥ 澄清前置：边界不清不得开工（用户全流程要求 ①）───────────────────── */
+
+test('⑥-a usage rule 1 须有澄清前置：填不出三项先回问用户', () => {
+  const usage = read('index.ts')
+  // 旧文案允许直接出卡片：必须已被"先判边界"取代。
+  assert.doesNotMatch(
+    usage,
+    /NEVER create a meeting straight away\. First call roundtable_plan_meeting/,
+    'rule 1 不得再直接从"不要立刻建会"跳到"先出卡片"——中间必须夹"先确认边界"',
+  )
+  assert.match(usage, /check whether the request is actually clear enough to meet on/, 'rule 1 须要求先判清晰度')
+  assert.match(usage, /ask ONE short clarifying question and wait/, '填不出时必须先问且等回答')
+  assert.match(usage, /what must NOT be touched/, '三项之一必须是"不许动什么"')
+})
+
+test('⑥-b usage rule 1 须引用实测代价（防后来人删掉这条）', () => {
+  const usage = read('index.ts')
+  // 留下判因，使删掉它需要先推翻证据 —— 与 chart 里其他规则的留档方式一致。
+  assert.match(usage, /690079f3/, 'rule 1 须引用实测会话 id（判因留档）')
+  assert.match(usage, /只有转述/, 'rule 1 须引用主持人自认的原话（"全仓查无你的原话，只有转述"）')
+})
+
+test('⑥-c 边界须贯通四段链：卡片 → 会议记录 → 总纲 → 导出', () => {
+  const plan = read('plan.ts')
+  const tools = read('tools.ts')
+  const charter = read('charter.ts')
+  const types = read('types.ts')
+  // ① 类型存在
+  assert.match(types, /export interface MeetingBoundary/, '须有 MeetingBoundary 类型')
+  assert.match(types, /boundary\?: MeetingBoundary/, 'Meeting 须挂 boundary')
+  // ② 卡片渲染（含未声明警示）
+  assert.match(plan, /边界确认/, '设置卡须有边界确认块')
+  assert.match(plan, /本次未声明边界/, '未声明时须显式警示（不得静默省略）')
+  // ③ 总纲注入（每个专家都看得到）
+  assert.match(charter, /本会议的边界声明/, '总纲须带边界段')
+  assert.match(charter, /明确不做 \/ 不许动/, '总纲须带"不许动"那一项')
+  // ④ 导出物留档
+  assert.match(tools, /## 边界声明/, '导出物须含边界段（否则事后无法复盘是否越界）')
+})
+
+test('⑥-d 边界须三个参数都可传（plan_meeting 与 create 同批）', () => {
+  const tools = read('tools.ts')
+  const hits = tools.match(/boundary_not_doing: \{ type: 'string'/g) ?? []
+  assert.equal(hits.length, 2, 'plan_meeting 与 create 两处都要有 boundary_not_doing（漏一处即断链）')
+  assert.match(tools, /boundary_goal: \{ type: 'string'/, 'plan_meeting 须收 boundary_goal')
+  assert.match(tools, /boundary_done: \{ type: 'string'/, 'plan_meeting 须收 boundary_done')
+})
+
+/* ── ⑦ 防拆东墙：全流程要求 ② 须落到机制而非口号 ───────────────────────── */
+
+test('⑦-a usage 须有专门一条防拆东墙（不得只散落在别处）', () => {
+  const usage = read('index.ts')
+  assert.match(usage, /NO ROBBING PETER TO PAY PAUL/, '须有独立的防拆东墙规则条')
+  assert.match(usage, /never redefine the boundary to fit a convenient solution/, '须禁止"改边界来迁就现成方案"')
+  assert.match(usage, /a meeting that ends silently about a crossed boundary is worse than one that fails loudly/, '须要求收口时如实报告越界')
+})
+
+test('⑦-b regression_risk 须四段贯通：类型 → 归一 → 信号 → 渲染', () => {
+  const types = read('types.ts')
+  const dispatch = read('dispatch.ts')
+  const tools = read('tools.ts')
+  assert.match(types, /regressionRisk\?: string/, 'RoundPlanItem 须有 regressionRisk')
+  assert.match(dispatch, /candidate\.regressionRisk \?\? candidate\.regression_risk/, '归一须接受 snake_case（与 depends_on 同风格）')
+  assert.match(dispatch, /risk_items_missing/, '信号须报"哪几项没自检"')
+  assert.match(tools, /regression self-check: \$\{String\(signals\.risk_declared/, 'status 须渲染分母（always render）')
+})
+
+test('⑦-c regression_risk 不得做成脆弱启发式（只呈现不判定）', () => {
+  const dispatch = read('dispatch.ts')
+  /*
+   * 设计决定留档：曾拟"按动词关键词判哪条是改动型工作"，**主动放弃**——
+   * 分类启发式会造出假红假绿（本插件反复在剿的形态）。本条钉住"没有偷偷加回分类"。
+   */
+  assert.doesNotMatch(
+    dispatch,
+    /regressionRisk[\s\S]{0,200}(REQUIRED|must not be empty|is empty — )/,
+    'regression_risk 不得做成硬门（机器判不了哪条需要自检）',
+  )
+  assert.match(dispatch, /只呈现不判定|不判定/, '须留档"只呈现不判定"的设计理由')
+})
+
+test('⑦-d 空串与缺省同义（防"填了空字符串"冒充已自检）', () => {
+  const dispatch = read('dispatch.ts')
+  // normalize 必须把空串折叠成"未填"；否则 "" 会进 plan 并被当成已声明。
+  assert.match(
+    dispatch,
+    /\.\.\.\(regressionRisk === '' \? \{\} : \{ regressionRisk \}\)/,
+    '空串必须折叠成缺省（否则空字符串会冒充"已自检"）',
+  )
+})
