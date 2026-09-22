@@ -1,0 +1,200 @@
+{
+  "ttft": {
+    "deepseek-v4.1-flash|0": {
+      "filler": 0,
+      "inTok": 34,
+      "ttftMin": 1036,
+      "ttftMed": 1241,
+      "ttftMax": 1553,
+      "samples": [
+        1553,
+        1241,
+        1036,
+        1145,
+        1193,
+        1344
+      ]
+    },
+    "glm-5.3-flash|0": {
+      "filler": 0,
+      "inTok": 16,
+      "ttftMin": 1202,
+      "ttftMed": 1694,
+      "ttftMax": 3801,
+      "samples": [
+        1202,
+        1755,
+        1674,
+        1694,
+        1280,
+        3801
+      ]
+    },
+    "deepseek-v4.1-flash|1000": {
+      "filler": 1000,
+      "inTok": 1455,
+      "ttftMin": 1180,
+      "ttftMed": 1300,
+      "ttftMax": 1496,
+      "samples": [
+        1233,
+        1181,
+        1180,
+        1327,
+        1496,
+        1300
+      ]
+    },
+    "glm-5.3-flash|1000": {
+      "filler": 1000,
+      "inTok": 1603,
+      "ttftMin": 1593,
+      "ttftMed": 1772,
+      "ttftMax": 2934,
+      "samples": [
+        1675,
+        1772,
+        2266,
+        1755,
+        2934,
+        1593
+      ]
+    },
+    "deepseek-v4.1-flash|5000": {
+      "filler": 5000,
+      "inTok": 7122,
+      "ttftMin": 1246,
+      "ttftMed": 1620,
+      "ttftMax": 1975,
+      "samples": [
+        1620,
+        1627,
+        1591,
+        1522,
+        1975,
+        1246
+      ]
+    },
+    "glm-5.3-flash|5000": {
+      "filler": 5000,
+      "inTok": 7936,
+      "ttftMin": 1699,
+      "ttftMed": 1936,
+      "ttftMax": 2156,
+      "samples": [
+        2058,
+        1905,
+        1936,
+        1699,
+        2156,
+        1811
+      ]
+    },
+    "deepseek-v4.1-flash|20000": {
+      "filler": 20000,
+      "inTok": 28372,
+      "ttftMin": 1676,
+      "ttftMed": 2042,
+      "ttftMax": 2195,
+      "samples": [
+        2195,
+        2042,
+        2166,
+        1917,
+        1676,
+        1919
+      ]
+    },
+    "glm-5.3-flash|20000": {
+      "filler": 20000,
+      "inTok": 31686,
+      "ttftMin": 1648,
+      "ttftMed": 2307,
+      "ttftMax": 3163,
+      "samples": [
+        2307,
+        2209,
+        3030,
+        3163,
+        1746,
+        1648
+      ]
+    }
+  },
+  "decode": {
+    "deepseek-v4.1-flash": {
+      "outTokSamples": [
+        1200,
+        885,
+        1200,
+        1200,
+        856,
+        1200
+      ],
+      "ttftSamples": [
+        1307,
+        1290,
+        1520,
+        1305,
+        1080,
+        1247
+      ],
+      "decodeMsSamples": [
+        4084,
+        2337,
+        3408,
+        3442,
+        2313,
+        3139
+      ],
+      "rateMin": 293.8,
+      "rateMed": 370.1,
+      "rateMax": 382.3,
+      "outTokMed": 1200
+    },
+    "glm-5.3-flash": {
+      "outTokSamples": [
+        963,
+        951,
+        951,
+        951,
+        972,
+        970
+      ],
+      "ttftSamples": [
+        1472,
+        1674,
+        3057,
+        2105,
+        1295,
+        1114
+      ],
+      "decodeMsSamples": [
+        14842,
+        15392,
+        14689,
+        15229,
+        16007,
+        4570
+      ],
+      "rateMin": 60.7,
+      "rateMed": 64.7,
+      "rateMax": 212.3,
+      "outTokMed": 963
+    }
+  },
+  "summary": {
+    "prefill_deepseek-v4.1-flash": {
+      "byMin": 44278,
+      "byMed": 35378,
+      "dTok": 28338,
+      "dTtftMin": 640
+    },
+    "prefill_glm-5.3-flash": {
+      "byMin": 71009,
+      "byMed": 51664,
+      "dTok": 31670,
+      "dTtftMin": 446
+    }
+  }
+}

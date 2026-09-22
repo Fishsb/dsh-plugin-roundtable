@@ -1,0 +1,160 @@
+{
+  "data": {
+    "deepseek-v4.1-flash": {
+      "0": {
+        "fillerWords": 0,
+        "inTok": 34,
+        "ttftMs": 1443,
+        "samples": [
+          "34tok/1551ms",
+          "34tok/1118ms",
+          "34tok/1443ms"
+        ]
+      },
+      "500": {
+        "fillerWords": 500,
+        "inTok": 747,
+        "ttftMs": 1293,
+        "samples": [
+          "747tok/1186ms",
+          "747tok/1343ms",
+          "747tok/1293ms"
+        ]
+      },
+      "2000": {
+        "fillerWords": 2000,
+        "inTok": 2872,
+        "ttftMs": 1667,
+        "samples": [
+          "2872tok/1667ms",
+          "2872tok/1159ms",
+          "2872tok/1907ms"
+        ]
+      },
+      "5000": {
+        "fillerWords": 5000,
+        "inTok": 7122,
+        "ttftMs": 1761,
+        "samples": [
+          "7122tok/1761ms",
+          "7122tok/1429ms",
+          "7122tok/1818ms"
+        ]
+      },
+      "12000": {
+        "fillerWords": 12000,
+        "inTok": 17038,
+        "ttftMs": 7961,
+        "samples": [
+          "17038tok/7737ms",
+          "17038tok/7961ms",
+          "17038tok/9421ms"
+        ]
+      },
+      "30000": {
+        "fillerWords": 30000,
+        "inTok": 42538,
+        "ttftMs": 8299,
+        "samples": [
+          "42538tok/8299ms",
+          "42538tok/8129ms",
+          "42538tok/10097ms"
+        ]
+      },
+      "60000": {
+        "fillerWords": 60000,
+        "inTok": 85038,
+        "ttftMs": 3032,
+        "samples": [
+          "85038tok/3496ms",
+          "85038tok/3032ms",
+          "85038tok/2497ms"
+        ]
+      }
+    },
+    "glm-5.3-flash": {
+      "0": {
+        "fillerWords": 0,
+        "inTok": 16,
+        "ttftMs": 1434,
+        "samples": [
+          "16tok/1434ms",
+          "16tok/1669ms",
+          "16tok/1155ms"
+        ]
+      },
+      "500": {
+        "fillerWords": 500,
+        "inTok": 811,
+        "ttftMs": 1978,
+        "samples": [
+          "811tok/1441ms",
+          "811tok/3120ms",
+          "811tok/1978ms"
+        ]
+      },
+      "2000": {
+        "fillerWords": 2000,
+        "inTok": 3186,
+        "ttftMs": 1866,
+        "samples": [
+          "3186tok/1866ms",
+          "3186tok/1919ms",
+          "3186tok/1626ms"
+        ]
+      },
+      "5000": {
+        "fillerWords": 5000,
+        "inTok": 7936,
+        "ttftMs": 2102,
+        "samples": [
+          "7936tok/2112ms",
+          "7936tok/2102ms",
+          "7936tok/1862ms"
+        ]
+      },
+      "12000": {
+        "fillerWords": 12000,
+        "inTok": 19020,
+        "ttftMs": 8223,
+        "samples": [
+          "19020tok/9830ms",
+          "19020tok/8223ms",
+          "19020tok/7292ms"
+        ]
+      },
+      "30000": {
+        "fillerWords": 30000,
+        "inTok": 47520,
+        "ttftMs": 2962,
+        "samples": [
+          "47520tok/3310ms",
+          "47520tok/2486ms",
+          "47520tok/2962ms"
+        ]
+      },
+      "60000": {
+        "fillerWords": 60000,
+        "inTok": 95020,
+        "ttftMs": 3433,
+        "samples": [
+          "95020tok/10540ms",
+          "95020tok/2796ms",
+          "95020tok/3433ms"
+        ]
+      }
+    }
+  },
+  "summary": {
+    "deepseek-v4.1-flash": {
+      "baseMs": 2890,
+      "slopeMsPerTok": 0.033622,
+      "prefillTokPerS": 29743
+    },
+    "glm-5.3-flash": {
+      "baseMs": 2801,
+      "slopeMsPerTok": 0.01379,
+      "prefillTokPerS": 72514
+    }
+  }
+}
