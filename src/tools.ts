@@ -2184,10 +2184,22 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         if (node.id !== '') interruptNode(ctx, captain, node.id)
       }
       // 阈值：≥3 位专家发过言 且 0 条决策 ⇒ 明显是"讨论了但没人拍板"的形态。
+      /*
+       * ⚠ 落点纪律（2026-09-23 · 用户点明「项目是项目，角色预设是角色预设」）：
+       *   本条**不得**写死任何预设 id。预设是**用户自建的、可改名可删除的**平铺列表
+       *   （实测 28 席里并没有 `dispute` —— 我上一版引用了一个**不存在的预设**，
+       *   主持人照做会扑空，属幽灵引用）。故此处只描述**职责**（要有人做分歧归位），
+       *   由主持人自己从 `roundtable_list_presets` / `talent_pool` 挑一个担得起的席，
+       *   用户没有合适的就自行写 role。
+       *   ⇒ **项目提供判据，不提供演员表。**
+       */
       const disputeHint = stats.speakers >= 3 && stats.decisions === 0
         ? `⚠ ${stats.speakers} experts spoke but 0 decisions were recorded — the fate of their objections is unrecorded. `
-          + 'Before finishing, either run the `dispute` preset seat (分歧归位: endorse/reject/untouched, untouched named one by one) '
-          + 'or fold every [建议决策] line into one roundtable_request_decision. Do not treat "nobody raised it again" as agreement.'
+          + 'Before finishing: (a) get a seat whose job is to reconcile disagreements (分歧归位) to sort every objection into '
+          + 'adopted (with the place it landed) / rejected (with the reason) / untouched (named one by one) — pick whichever '
+          + 'preset from roundtable_list_presets / talent_pool covers that job, or write that role yourself if the user has none; '
+          + 'or (b) fold every [建议决策] line into one roundtable_request_decision. '
+          + 'Do not treat "nobody raised it again" as agreement.'
         : ''
       return { closed: true, meeting_name: located.name, dispute_hint: disputeHint }
     },

@@ -98,7 +98,53 @@ test('③-a close 在有讨论无决定时须提示（不得静默收场）', ()
   const tools = read('tools.ts')
   assert.match(tools, /dispute_hint/, 'close 须回吐分歧提示字段')
   assert.match(tools, /experts spoke but 0 decisions/, '提示文案须点破"反对意见去向未记录"')
-  assert.match(tools, /never pretend it was collected|Do not treat "nobody raised it again" as agreement/, '须禁止把"没人再提"当一致')
+  assert.match(tools, /Do not treat "nobody raised it again" as agreement/, '须禁止把"没人再提"当一致')
+})
+
+test('③-a′ 落点纪律：项目不得硬编码角色预设 id（预设是用户的，可改名可删）', () => {
+  const tools = read('tools.ts')
+  const usage = read('index.ts')
+  /*
+   * 用户 2026-09-23 点明「项目是项目，角色预设是角色预设」。
+   * 实测我上一版犯过两次：① close 提示让主持人去用 `dispute` 预设——**该预设不存在**，
+   * 主持人照做会扑空（幽灵引用）；② rule 18 把 arch/verify/repro/security/data/perf
+   * 当"标准答案"列出来。二者都把**用户的可变资产**写进了项目源码。
+   * 正确做法：项目只说**职责/能力面**，由主持人去 list_presets/talent_pool 挑。
+   */
+  assert.doesNotMatch(
+    tools,
+    /run the `dispute` preset/,
+    'close 提示不得引用具体预设 id（dispute 在用户 28 席里并不存在 = 幽灵引用）',
+  )
+  assert.match(tools, /pick whichever/, 'close 提示须改为"从候选里挑"，而非点名')
+  assert.doesNotMatch(
+    usage,
+    /architecture\/design seat \(\\`arch\\`\)/,
+    'rule 18 不得把 arch 当标准答案',
+  )
+  assert.match(
+    usage,
+    /Do NOT treat any preset id as the answer/,
+    'rule 18 须显式说明"不要把任何预设 id 当答案"（其可改名可删除、甚至可能不存在）',
+  )
+  assert.match(usage, /call roundtable_list_presets or read talent_pool and pick whichever seat/, 'rule 18 须指向动态候选池')
+})
+
+test('③-a″ 角色预设 id 不得作为"必须存在"的前提出现在项目源码', () => {
+  const files = ['tools.ts', 'index.ts', 'dispatch.ts', 'charter.ts', 'plan.ts']
+  /*
+   * 这条是上一条的**结构版**：上面靠列举已知违规写法，这条防"换个 id 再来一次"。
+   * 判据：源码里不得出现 `preset="<id>"` / `preset: '<id>'` 这类**写死的预设引用**；
+   * 动态解析（resolvePreset(available, ref)）不受影响。
+   */
+  for (const file of files) {
+    const text = read(file)
+    assert.doesNotMatch(
+      text,
+      /preset\s*[:=]\s*['"][a-z][a-z0-9-]{1,30}['"]/,
+      `${file} 不得写死预设 id 字面量（预设属于用户，项目只认动态候选池）`,
+    )
+  }
 })
 
 test('③-b 提示不得阻断 close（只问一个专家的正当用法不能被拦）', () => {
