@@ -243,3 +243,76 @@ test('⑦-d 空串与缺省同义（防"填了空字符串"冒充已自检）', 
     '空串必须折叠成缺省（否则空字符串会冒充"已自检"）',
   )
 })
+
+/* ── ⑧ 禁止自产自审（用户明确要求）───────────────────────────────────── */
+
+test('⑧-a 自产自审须是**硬门**（不是提醒）：三形态都要被拦', () => {
+  const dispatch = read('dispatch.ts')
+  // ① change 无独立审查项
+  assert.match(dispatch, /is kind:"change" but no kind:"review" item depends on it/, '须拦"改动无独立审查"')
+  // ② 同席自审
+  assert.match(dispatch, /that is 自产自审 \(self-review\)/, '须拦同席自审')
+  // ③ 交叉自审
+  assert.match(dispatch, /交叉自审/, '须拦交叉自审（审别人的同时自己也有改动在审）')
+  assert.match(dispatch, /item\.kind === 'change'/, '判据须基于显式 kind，不得靠动词猜测')
+})
+
+test('⑧-b 自产自审判据须有单席豁免（结构上分不了席）', () => {
+  const dispatch = read('dispatch.ts')
+  assert.match(
+    dispatch,
+    /changeItems\.length > 0 && context\.rosterKeys\.length >= 2/,
+    '在场席 <2 时须豁免（无法分席，不是纵容）；否则单席会议无法推进',
+  )
+})
+
+test('⑧-c 独立审查覆盖面须可见（硬门只管"至少一个"，半覆盖要报出来）', () => {
+  const dispatch = read('dispatch.ts')
+  const tools = read('tools.ts')
+  assert.match(dispatch, /change_uncovered/, '信号须报"哪些 change 无独立审查"')
+  assert.match(dispatch, /change_covered/, '信号须报覆盖率')
+  assert.match(tools, /independent review: \$\{String\(signals\.change_covered/, 'status 须渲染覆盖率（always render）')
+  assert.match(dispatch, /kind_unspecified/, '未声明 kind 的项须可见（只报不拦）')
+})
+
+test('⑧-d usage 须有独立的禁止自产自审条（含按任务类型选审查席）', () => {
+  const usage = read('index.ts')
+  assert.match(usage, /NO SELF-REVIEW/, '须有独立的禁止自产自审规则条')
+  assert.match(usage, /self-review structurally cannot find the wall its own change knocked down/, '须给出"为什么"（自审找不到自己拆的墙）')
+  assert.match(usage, /Pick the reviewer by TASK TYPE/, '须要求按任务类型挑审查席')
+  assert.match(usage, /do NOT silently accept it — re-dispatch the fix/, '须要求审查不通过时重新派单而非静默接受')
+})
+
+test('⑧-e 派单时须把防拆东墙要求写进任务正文（不能只留在协议里）', () => {
+  const usage = read('index.ts')
+  assert.match(usage, /put the anti-patch requirement INTO the task text itself/, '须要求把要求写进派单消息本身')
+})
+
+/* ── ⑨ 锚定用户指令（绝对避免偏离）────────────────────────────────────── */
+
+test('⑨-a userDirective 须四段贯通：类型 → 卡片 → status → 总纲/导出', () => {
+  const types = read('types.ts')
+  const plan = read('plan.ts')
+  const tools = read('tools.ts')
+  const charter = read('charter.ts')
+  assert.match(types, /userDirective\?: string/, 'Meeting 须有 userDirective')
+  assert.match(plan, /userDirective\?: string/, '卡片草案须带 userDirective')
+  assert.match(plan, /你的原话（逐字）/, '卡片须原样回显用户原话（防转述覆盖）')
+  assert.match(tools, /user_directive: meeting\.userDirective \?\? ''/, 'status 须回吐（每轮对照）')
+  assert.match(tools, /USER DIRECTIVE \(verbatim/, 'status 渲染须显眼（每轮必现）')
+  assert.match(charter, /一之一、\*\*用户原话\*\*（未加工·最高优先级/, '总纲须带用户原话段（与目标冲突时以原话为准）')
+  assert.match(tools, /## 用户原话（未加工）/, '导出物须留原话（否则事后查不出偏离）')
+})
+
+test('⑨-b 未留原话时须显式警示（不留白）', () => {
+  const tools = read('tools.ts')
+  assert.match(tools, /user directive: NOT recorded/, '未留档时须提示"你只有自己的转述"')
+})
+
+test('⑨-c usage 须有独立的锚定用户指令条 + 主持人闭环职责', () => {
+  const usage = read('index.ts')
+  assert.match(usage, /STAY ON THE USER'S DIRECTIVE/, '须有独立的锚定指令规则条')
+  assert.match(usage, /clarify intent → compose the plan → dispatch → judge the returned results → re-dispatch/, '须写清主持人的闭环职责')
+  assert.match(usage, /What does NOT count as progress/, '须定义"什么不算进展"（防自我感动式推进）')
+  assert.match(usage, /never quietly redefine the goal/, '须禁止静默改目标')
+})

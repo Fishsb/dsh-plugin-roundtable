@@ -134,11 +134,15 @@ export function normalizePlanItems(raw: unknown): RoundPlanItem[] {
     // 避免"填了个空字符串"被当成做过自检——那是本插件在剿的假绿形态。
     const riskRaw = candidate.regressionRisk ?? candidate.regression_risk
     const regressionRisk = String(riskRaw ?? '').trim().slice(0, MAX_TASK_CHARS)
+    // 任务类型（2026-09-23）：只接受三个已知值，其余折成"未声明"（不拦、但可辨）。
+    const kindRaw = String(candidate.kind ?? candidate.item_kind ?? '').trim()
+    const kind = kindRaw === 'change' || kindRaw === 'review' || kindRaw === 'survey' ? kindRaw : ''
     return [{
       id,
       task,
       owner,
       dependsOn,
+      ...(kind === '' ? {} : { kind: kind as 'change' | 'review' | 'survey' }),
       ...(regressionRisk === '' ? {} : { regressionRisk }),
     }]
   })
@@ -232,6 +236,67 @@ export function validateRoundPlan(
       }
     }
     if (!owners.includes(ref.value)) owners.push(ref.value)
+  }
+
+  /*
+   * ══ 禁止自产自审（2026-09-23 · 用户要求）══════════════════════════════════════
+   *
+   * 用户原话：「讨论的过程中一定要避免自产自审的情况」。
+   *
+   * ── 为什么必须是硬门而不是提醒 ────────────────────────────────────────────────
+   * 产出者审自己的产出，**结构上**不可能发现"我这次改动拆了哪面墙"——它只知道自己
+   * 想改什么。上一版只做了 `regression_risk`（产出者自检即自产自审），本条补上
+   * **独立第二双眼睛**。
+   *
+   * ── 判据（确定性、无启发式）────────────────────────────────────────────────
+   *  ① 每个 `kind:'change'` 项 ⇒ 本计划内必须有 `kind:'review'` 项，且其 `dependsOn`
+   *     **包含**该 change 项（= 审查发生在改动之后，不是并行空谈）；
+   *  ② 审查席的 `owner` **不得是该 change 项的 owner**（同席自审 = 自产自审）；
+   *  ③ 审查席 owner 也不得与**任何** change 项 owner 重合（防"甲改 A、乙改 B、
+   *     甲审 B"这类交叉自审——那次审计实测过这种形态）。
+   *
+   * ── 为什么不拦"未声明 kind"的项 ──────────────────────────────────────────
+   * 机器判不了未声明项有没有改动面（按动词猜是脆弱启发式，已明确放弃）。
+   * 故只对**显式声明 change** 的项强制；未声明的由 `round_signals` 报
+   * `kind_unspecified` 使缺口可见，由主持人/人决定。**不替人下结论，但也不放它静默。**
+   *
+   * ── 阈值与豁免 ─────────────────────────────────────────────────────────
+   * 单席会议（在场席 < 2）无法分席 ⇒ 跳过本门（结构上做不到，不是纵容）。
+   */
+  const changeItems = items.filter((item) => item.kind === 'change')
+  if (changeItems.length > 0 && context.rosterKeys.length >= 2) {
+    const reviewItems = items.filter((item) => item.kind === 'review')
+    const changeOwners = new Set(changeItems.map((item) => item.owner))
+    for (const change of changeItems) {
+      const covering = reviewItems.filter((review) => review.dependsOn.includes(change.id))
+      if (covering.length === 0) {
+        return {
+          ok: false,
+          error: `item "${change.id}" is kind:"change" but no kind:"review" item depends on it — `
+            + 'a change must be independently reviewed afterwards (禁止自产自审). '
+            + `Add an item {id, task, owner:<a DIFFERENT seat>, kind:"review", depends_on:["${change.id}"]} `
+            + 'that judges: is this a 拆东墙补西墙 patch, or a root-cause fix?',
+        }
+      }
+      // ② 同席自审：审查席就是改动者本人。
+      const selfReview = covering.find((review) => review.owner === change.owner)
+      if (selfReview !== undefined) {
+        return {
+          ok: false,
+          error: `item "${selfReview.id}" (review) is owned by "${selfReview.owner}", which is the SAME seat that owns the change "${change.id}" `
+            + '— that is 自产自审 (self-review), which cannot catch what its own change broke. Give the review to a different seat.',
+        }
+      }
+      // ③ 交叉自审：审查席改了本轮别的项 ⇒ 它审别人时会偏向护自己的改动。
+      const crossReview = covering.find((review) => changeOwners.has(review.owner))
+      if (crossReview !== undefined) {
+        return {
+          ok: false,
+          error: `item "${crossReview.id}" (review) is owned by "${crossReview.owner}", which also owns a change item this round `
+            + '— a seat reviewing another\'s change while its own change is under review is 交叉自审. Use a seat that changes nothing this round.',
+        }
+      }
+    }
   }
 
   return { ok: true, report: { waves: planWaves(items), gaps, owners } }
@@ -654,6 +719,14 @@ export function buildRoundSignals(input: RoundSignalsInput): {
   risk_declared: number
   /** **未**做回归风险自检的项 id（只呈现不判定：机器判不了哪条需要自检）。 */
   risk_items_missing: string[]
+  /** 声明为 `change` 的项数（分母）。 */
+  change_items: number
+  /** 被**独立审查项**覆盖的 change 项数。 */
+  change_covered: number
+  /** 声明 `change` 却无独立审查覆盖的项 id（兜底可见面）。 */
+  change_uncovered: string[]
+  /** 未声明 `kind` 的项 id（只报不拦）。 */
+  kind_unspecified: string[]
 } {
   const { round, plan, liveSeatKeys, utterances } = input  // 计划承接席（席位口径）：
   //  - `owner` 是裸席位 key ⇒ 原样进集；
@@ -782,5 +855,31 @@ export function buildRoundSignals(input: RoundSignalsInput): {
     risk_items_missing: plan === undefined
       ? [] as string[]
       : plan.items.filter((item) => (item.regressionRisk ?? '') === '').map((item) => item.id),
+    /*
+     * 独立审查覆盖面（2026-09-23 · 用户要求「避免自产自审」+「主持人再次让相关成员做二次审查」）。
+     *
+     * 与 `risk_*` 的分工（两者**不同**，不要混）：
+     *  · `risk_declared`      = 产出者**自检**（我可能碰坏什么）—— 弱，且本质是自产自审的补充；
+     *  · `change_covered`     = **独立审查席**覆盖了几个 change 项 —— 强，本组指标是它。
+     * 硬门已在 validateRoundPlan 拦下"change 无独立审查"，这里报的是**覆盖面计数**，
+     * 使"本轮 3 个改动只有 1 个被独立审过"这种半覆盖**可见**（硬门只能保证"至少一个审查项存在"，
+     * 不能保证"每个 change 都有"——故两面都要有）。
+     */
+    change_items: plan === undefined ? 0 : plan.items.filter((item) => item.kind === 'change').length,
+    change_covered: plan === undefined ? 0 : plan.items
+      .filter((item) => item.kind === 'change')
+      .filter((change) => plan.items.some((review) => review.kind === 'review' && review.dependsOn.includes(change.id)))
+      .length,
+    /** 声明了 `change` 但**没有**独立审查项覆盖的项 id（硬门之外的兜底可见面）。 */
+    change_uncovered: plan === undefined
+      ? [] as string[]
+      : plan.items
+          .filter((item) => item.kind === 'change')
+          .filter((change) => !plan.items.some((review) => review.kind === 'review' && review.dependsOn.includes(change.id)))
+          .map((item) => item.id),
+    /** 未声明 `kind` 的项 id —— 机器判不了它有没有改动面，故只报不拦（缺口可见）。 */
+    kind_unspecified: plan === undefined
+      ? [] as string[]
+      : plan.items.filter((item) => item.kind === undefined).map((item) => item.id),
   }
 }

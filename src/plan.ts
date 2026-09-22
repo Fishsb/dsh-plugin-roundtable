@@ -44,6 +44,8 @@ export interface MeetingDraft {
    * 缺省 = 主持人未声明 ⇒ 卡片会显式警示「边界未声明」，并提示先问用户。
    */
   boundary?: MeetingBoundary
+  /** 用户**未加工的原始指令**（2026-09-23）：卡片上原样回显，让用户核对有无被转述歪。 */
+  userDirective?: string
   /** 本次会议选中的 skill 名称清单（可为空）。 */
   skills: string[]
   /** skill 传递方式：relay=主持人中转；direct=专家自行调用。 */
@@ -158,6 +160,18 @@ export function formatMeetingDraft(
      * 的那个交接点。三项与用户自建项目治理的 doing/next/notDoing/exit 同构。
      */
     '## 边界确认（★ 请核对你原话是否被准确转述）',
+    /*
+     * 用户原话回显（2026-09-23 · 用户要求「绝对要避免偏离用户指令」）。
+     * 位置在"边界确认"之前：**先让用户看到自己的原话**，再看主持人的转述。
+     * 若逐字原话与转述并列而不同，用户一眼能发现——这是防"转述覆盖原话"最便宜的机制。
+     */
+    ...(draft.userDirective === undefined || draft.userDirective.trim() === ''
+      ? []
+      : [
+          '**你的原话（逐字）**：',
+          `> ${draft.userDirective.trim().split('\n').join('\n> ')}`,
+          '',
+        ]),
     '主持人把你的话转述成了上面这段。**若与你原意不符，请在「我要修改」里写回你的原话。**',
     ...(boundary === undefined
       ? [

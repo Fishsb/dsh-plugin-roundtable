@@ -439,6 +439,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。' },
       boundary_done: { type: 'string', description: '判定「已解决」的标准。' },
       boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（防拆东墙的判据）。' },
+      user_directive: { type: 'string', description: '用户未加工的原始指令（逐字摘录，非转述）；会议每轮对照它防偏离。' },
       skip_plan_card: {
         type: 'boolean',
         description: '设置卡门禁的**显式绕过**（缺省 false）。仅在**确为脚本/探针/验证用途**、不需要用户确认席位与预算时置 true；置 true 会在会议记录里留痕（planCardSkipped），事后可查。正常流程不要用它 —— 前一步应是 roundtable_plan_meeting 且用户选了「按此创建」。',
@@ -496,6 +497,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const cGoal = String(args.boundary_goal ?? '').trim()
       const cDone = String(args.boundary_done ?? '').trim()
       const cNot = String(args.boundary_not_doing ?? '').trim()
+      const cDirective = String(args.user_directive ?? '').trim()
       const boundary = (cGoal === '' && cDone === '' && cNot === '')
         ? undefined
         : { goal: cGoal, done: cDone, notDoing: cNot }
@@ -541,6 +543,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             ...(kbPath === '' ? {} : { kbPath }),
             ...(requestedSkills.length === 0 ? {} : { skills: requestedSkills }),
             ...(boundary === undefined ? {} : { boundary }),
+            ...(cDirective === '' ? {} : { userDirective: cDirective }),
             skillDelivery,
             status: 'active',
             createdAt: now,
@@ -578,6 +581,10 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。填不出就说明边界不清 —— 先回问用户，不要带着模糊目标开会。' },
       boundary_done: { type: 'string', description: '判定「已解决」的标准：什么情况下算完成。' },
       boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（= 不许拆的那面墙）。会议全程与每次改动都要对照它自检有没有把别处弄坏。' },
+      /**
+       * 用户原话（2026-09-23 · 用户要求「以用户的会话指令为核心，绝对要避免偏离用户指令」）。
+       */
+      user_directive: { type: 'string', description: '用户**未加工的原始指令**（逐字摘录，不要转述）。会议每轮都会对照它核查"还在解用户问的那个问题吗"。转述一旦覆盖原话，偏离就无法被发现。' },
       mode: { type: 'string', enum: ['orchestrated', 'egalitarian', 'redteam'], description: '协作模式；缺省用设置页的默认模式。' },
       experts: {
         type: 'array',
@@ -642,6 +649,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const bGoal = String(args.boundary_goal ?? '').trim()
       const bDone = String(args.boundary_done ?? '').trim()
       const bNot = String(args.boundary_not_doing ?? '').trim()
+      const directive = String(args.user_directive ?? '').trim()
       const boundary = (bGoal === '' && bDone === '' && bNot === '')
         ? undefined
         : { goal: bGoal, done: bDone, notDoing: bNot }
@@ -699,6 +707,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         skills,
         skillDelivery: defaults.skillDelivery,
         ...(boundary === undefined ? {} : { boundary }),
+        ...(directive === '' ? {} : { userDirective: directive }),
       }
       // 清单读取失败一律降级为空（skills.ts 内部已兜底）。
       const available = await listInvocableSkills(ctx, workspace, exec.signal)
@@ -1066,6 +1075,18 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             task: { type: 'string', required: true, description: '这一项要做什么（一句话，可核）。' },
             owner: { type: 'string', required: true, description: '承接席：在场席 key，或 new:<预设 id>。' },
             depends_on: { type: 'array', items: { type: 'string' }, description: '必须先完成的本轮工作项 id；留空 = 与同为空的项并行。' },
+            /**
+             * 任务类型（2026-09-23 · 用户要求「根据任务类型应该有一个专门做审查的」
+             * + 「一定要避免自产自审」）。
+             * ⚠ 硬门：声明 `kind:"change"` 即**必须**另有一条 `kind:"review"` 项
+             *   depends_on 指向它，且审查席 owner **不得**是任何 change 项的 owner
+             *   （同席或交叉自审都会被拒）。在场席 <2 时豁免（结构上无法分席）。
+             */
+            kind: {
+              type: 'string',
+              enum: ['change', 'review', 'survey'],
+              description: '任务类型：change=会产生改动（改代码/配置/文档/数据）⇒ 强制独立审查；review=独立审查项，判"拆东墙补西墙打补丁 还是 从根因解决"（owner 必须是没做本轮改动的席）；survey=只读勘察无改动面。不填会被 round_signals 列为 unspecified（只报不拦）。',
+            },
             /**
              * 回归风险自检（2026-09-23 · 用户要求「避免方案拆东墙补西墙」）。
              * ⚠ **只呈现、不判定**：机器判不了"哪条是改动型工作"——按动词关键词
@@ -1545,6 +1566,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
               done: meeting.boundary.done,
               not_doing: meeting.boundary.notDoing,
             },
+        /* 用户原话（2026-09-23）：每轮必现，供主持人对照"还在解用户问的那个问题吗"。 */
+        user_directive: meeting.userDirective ?? '',
         kb_path: meeting.kbPath ?? '',
         skills: meeting.skills ?? [],
         skill_delivery: meeting.skillDelivery ?? config.getSkillDelivery?.() ?? 'relay',
@@ -2303,6 +2326,15 @@ function renderStatus(value: Record<string, unknown>): string {
         ...(nn === '' ? [] : ['    ⚠ Any change must be checked against the NOT-doing line: name which wall it could hit and the evidence it did not.']),
       ]
     })(),
+    /* 用户原话渲染（2026-09-23）：**每轮都出**，且放在最显眼处。
+     * 未留档时也显式提示（不留白），因为"没有原话"本身就是偏离风险。 */
+    ...(() => {
+      const raw = String(value.user_directive ?? '').trim()
+      if (raw === '') {
+        return ['⚠ user directive: NOT recorded — you have only your own paraphrase of what the user asked. Re-read their message and record it verbatim (user_directive) before dispatching.']
+      }
+      return [`USER DIRECTIVE (verbatim — every round must still serve THIS): ${raw.length > 400 ? `${raw.slice(0, 400)}…` : raw}`]
+    })(),
     `Knowledge base path: ${String(value.kb_path ?? '') === '' ? '(none)' : String(value.kb_path)}`,
     `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,
     `Nodes (${nodes.length}):`,
@@ -2375,6 +2407,18 @@ function renderStatus(value: Record<string, unknown>): string {
         ...((Array.isArray(signals.risk_items_missing) ? signals.risk_items_missing as string[] : []).length === 0
           ? []
           : [`    ⚠ not self-checked: ${(signals.risk_items_missing as string[]).join(', ')} — if any of these touches code or config, ask what it might break BEFORE accepting the result (拆东墙补西墙 is what this catches)`]),
+        /*
+         * 独立审查覆盖面（2026-09-23 · 用户要求「避免自产自审」）。
+         * 分母 always render（同 planned_owners 的教训）。硬门已保证"change 至少有一个
+         * 独立审查项"，这里报的是**每个 change 是否都被覆盖**——硬门管不到的半覆盖面。
+         */
+        `  independent review: ${String(signals.change_covered ?? 0)}/${String(signals.change_items ?? 0)} change item(s) covered by a review owned by a DIFFERENT seat`,
+        ...((Array.isArray(signals.change_uncovered) ? signals.change_uncovered as string[] : []).length === 0
+          ? []
+          : [`    ⚠ change without independent review: ${(signals.change_uncovered as string[]).join(', ')} — 自产自审发现不了自己拆的墙；give these to a seat that changes nothing this round`]),
+        ...((Array.isArray(signals.kind_unspecified) ? signals.kind_unspecified as string[] : []).length === 0
+          ? []
+          : [`    · kind unspecified: ${(signals.kind_unspecified as string[]).join(', ')} — if any of these produces a change, declare it kind:"change" so it gets an independent review`]),
       ] : []),
       ...(undispatchedOwners.length === 0 && unplannedDispatches.length === 0 ? [] : [
         `  plan vs actual dispatches: ⚠ undispatched owners [${undispatchedOwners.join(', ')}]; unplanned dispatches [${unplannedDispatches.join(', ')}]`,
@@ -2531,6 +2575,11 @@ export function renderMeetingMarkdown(
   out.push('---', '')
 
   out.push('## 议题 / 目标', '', meeting.goal.trim() === '' ? '（未提供）' : meeting.goal.trim(), '')
+  /* 用户原话进导出物（2026-09-23）：交付记录里必须留着"用户到底说了什么"，
+   * 否则事后复盘只能看到主持人的转述，永远查不出偏离。 */
+  if ((meeting.userDirective ?? '').trim() !== '') {
+    out.push('## 用户原话（未加工）', '', `> ${(meeting.userDirective ?? '').trim().split('\n').join('\n> ')}`, '')
+  }
   /* 边界声明进导出物（2026-09-23）：交付给人看的记录里必须能看到"当初约定了什么不做"，
    * 否则事后复盘无法判断"有没有越界"——缺了它，防拆东墙就只活在会议进行时。 */
   if (meeting.boundary !== undefined) {
