@@ -338,11 +338,44 @@ export function interruptNode(ctx: Context, captain: Agent, childId: string): vo
   }
 }
 
+/**
+ * 投递主持人的**来源**：谁在说这句话。
+ *
+ * 为什么把它做成**必填参数**而不是让每个调用点自己拼封皮（2026-09-23 实测）：
+ * 仓内投递主持人的路径共 5 处，封皮原本靠「每个调用点自己记得加」。实测**两处漏加**，
+ * 而漏加的恰好是同一语义的两个入口 —— `/roundtable <议题>` 命令（`src/index.ts`）
+ * 与空状态输入框（`src/rpc.ts` 的 `roundtable/steer`，其注释自述「与斜杠命令完全一致」）。
+ * 后果：主持人读不出这句话是谁说的；且与 `say`（已加壳）口径不一致 —— 同一件事两种真相。
+ *
+ * 于是封皮从「5 个调用点的记忆」收进**类型**：不给出处，**编译期就过不去**。
+ * 选类型级而非运行时正则门，是因为它零运行时代价、无新增失败路径，且
+ * `npm run typecheck` 本来就在构建链里（见 package.json 的 build）。
+ */
+export type CaptainProvenance =
+  /** 用户亲口给的议题：`/roundtable <议题>` 命令与空状态输入框共用同一份。 */
+  | { readonly kind: 'user-topic' }
+  /** 用户在会议群聊里说的话（`roundtable/say`）。 */
+  | { readonly kind: 'meeting-group-chat' }
+  /** 某专家的发言（`RoundTable message from <speaker>`）。 */
+  | { readonly kind: 'node'; readonly speaker: string }
+
+/** 把来源渲染成封皮首行 —— 这是封皮的**唯一**产地。 */
+export function provenanceLabel(provenance: CaptainProvenance): string {
+  switch (provenance.kind) {
+    case 'user-topic':
+      return 'Message from the user (round-table topic):'
+    case 'meeting-group-chat':
+      return 'Message from the user (meeting group chat):'
+    case 'node':
+      return `RoundTable message from ${provenance.speaker}:`
+  }
+}
+
 /** Steer a live message into the captain at its nearest model boundary (best effort). */
-export function steerCaptain(captain: Agent, text: string): boolean {
+export function steerCaptain(captain: Agent, provenance: CaptainProvenance, body: string): boolean {
   try {
     captain.steer(createUserMessage({
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: `${provenanceLabel(provenance)}\n\n${body}` }],
       source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' },
     }))
     return true

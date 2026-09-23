@@ -199,3 +199,44 @@ test('接线守卫⑤：mode 是可选的（旧配置/无 UI 组合下插件仍�
   const index = stripLineComments(read('../src/index.ts'))
   assert.match(index, /mode: modeTable/, 'index 必须真的把表接进去（声明了却没人装配 = 死字段）')
 })
+
+test('接线守卫⑦：投递主持人**一律经 steerCaptain**，且不得有裸 steer（2026-09-23 实测反例）', () => {
+  // 为什么加这一条：封皮原本靠「每个调用点自己记得加」，实测**两处漏加**，
+  // 而漏加的恰好是同一语义的两个入口 —— `/roundtable <议题>` 命令（index.ts）
+  // 与空状态输入框（rpc.ts 的 roundtable/steer，其注释自述「与斜杠命令完全一致」）。
+  // 会话日志实证：命令路径转交出去的正文是 `整理一下我需要对整个项目做…`，
+  // 首行没有任何出处；而同一次会话里 `say` 路径的正文首行是
+  // `Message from the user (meeting group chat):`。同一件事两种真相。
+  //
+  // 本守卫钉住"封皮只有一个产地"：任何直接 `agent.steer(createUserMessage(...))`
+  // 的裸投递都必须为零 —— 因为那条路不经过 CaptainProvenance 的类型强制。
+  const files = ['../src/index.ts', '../src/rpc.ts', '../src/tools.ts', '../src/members.ts']
+  const raw = new Map(files.map((f) => [f, stripLineComments(read(f))]))
+  for (const [file, src] of raw) {
+    // members.ts 是 steerCaptain 自己的实现，唯一允许出现 createUserMessage 的地方。
+    if (file.endsWith('members.ts')) continue
+    assert.ok(
+      !/\.steer\(\s*createUserMessage/.test(src),
+      `${file} 里出现了裸 steer(createUserMessage(...)) —— 投递主持人必须走 steerCaptain(出处, 正文)`,
+    )
+  }
+  // 反向：调用点的实参必须**声明出处**（漏了 typecheck 就过不去；
+  // 这里再钉一次是因为 typecheck 在本机因 peer 声明解析失败而常年红，
+  // 不能把这条纪律的发现责任全押在一个已经红的闸上）。
+  const callers = ['../src/index.ts', '../src/rpc.ts', '../src/tools.ts']
+  const provenanceKinds = new Set()
+  for (const file of callers) {
+    const src = raw.get(file)
+    for (const m of src.matchAll(/steerCaptain\([^,]+,\s*\{\s*kind:\s*'([a-z-]+)'/g)) provenanceKinds.add(m[1])
+  }
+  assert.deepEqual(
+    [...provenanceKinds].sort(),
+    ['meeting-group-chat', 'node', 'user-topic'],
+    '三类出处都必须被真实调用点使用（少一类说明某条投递路径没走 steerCaptain）',
+  )
+  // 封皮工厂是唯一产地：三类都必须真的产出文本（掏空 provenanceLabel 会静默裸投）。
+  const members = raw.get('../src/members.ts')
+  for (const label of ['(round-table topic)', '(meeting group chat)', 'RoundTable message from ']) {
+    assert.ok(members.includes(label), `provenanceLabel 缺少封皮片段：${label}`)
+  }
+})

@@ -145,7 +145,18 @@ test('接线：say 落盘后**唤醒**主持人（落盘 ≠ 送达，不唤醒�
   assert.ok(body.includes('delivered'), 'say 没有把送达结果回给前端')
   // 加壳：steer 出去的是 plugin 来源的消息，裸着转发用户原文会让主持人分不清
   // 这是用户本人在说话还是插件注入的文本。
-  assert.ok(body.includes('Message from the user'), '唤醒时没有标明这条来自用户（主持人会误判来源）')
+  //
+  // ⚠ 封皮的**产地**在 2026-09-23 收敛了：原先靠此处各记一遍字面量，实测命令路径
+  // 与空状态输入框两处都漏加（同一语义两个入口两种真相）。现由 `steerCaptain` 的
+  // `CaptainProvenance` 参数**在类型层**强制。故本守卫分两段钉住，强度不降反升：
+  //   ① 调用点必须**声明出处**（漏了编译期就过不去，运行时也拿不到字面量）；
+  //   ② 封皮工厂必须真的产出「来自用户」的文本（防止 provenanceLabel 被掏空）。
+  assert.ok(body.includes("{ kind: 'meeting-group-chat' }"), '唤醒时没有声明出处（主持人会误判来源）')
+  const members = deComment(read('../src/members.ts'))
+  assert.ok(
+    members.includes('Message from the user (meeting group chat):'),
+    '封皮工厂没有产出「来自会议群聊的用户发言」文本（主持人会误判来源）',
+  )
   // 唤醒必须在会议锁**之外**（steer 会推进入主持人的回合，不该占着会议锁）。
   const lockStart = body.indexOf('withMeetingRpcLock')
   const lockBody = body.slice(lockStart, body.indexOf('if (!recorded.ok)'))

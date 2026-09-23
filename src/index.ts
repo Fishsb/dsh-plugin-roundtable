@@ -33,8 +33,8 @@ import { collectMeetingSnapshots } from './snapshot.ts'
 import { registerRpc, RPC_ROUTE, type RoundTableRuntime } from './rpc.ts'
 import { SessionModeTable, modeSectionText, MODE_COMMAND_NAME, runModeCommand } from './mode.ts'
 import { setWorkspaceCandidates, workspaceCandidates } from './workspace-candidates.ts'
+import { steerCaptain } from './members.ts'
 import { join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const name = 'roundtable'
@@ -430,10 +430,11 @@ export function apply(ctx: Context, config: Config): void {
         if (outcome.steerText !== '') {
           // 议题作为一条插件来源的用户消息转交主持人：空闲时它会开一个回合，
           // 忙时在最近一个步骤边界插入（steer 的既定语义）。
-          invocation.agent.steer(createUserMessage({
-            content: [{ type: 'text', text: outcome.steerText }],
-            source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' },
-          }))
+          //
+          // 必须走 `steerCaptain` 并给出**出处**：裸投递会让主持人读不出
+          // 「这是用户给的议题」还是「插件自己注入的文本」（2026-09-23 实测
+          // 本处曾裸传，与空状态输入框那处同族；封皮现收进 `steerCaptain` 的类型）。
+          steerCaptain(invocation.agent, { kind: 'user-topic' }, outcome.steerText)
         }
         return { kind: 'success', text: outcome.text }
       },

@@ -930,7 +930,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
             const captain = ctx.agents.get(recorded.value.captainSessionId as SessionId)
             const delivered = captain === undefined
               ? false
-              : steerCaptain(captain, `Message from the user (meeting group chat):\n\n${text}`)
+              : steerCaptain(captain, { kind: 'meeting-group-chat' }, text)
             return ok<{ id: string; ts: number; delivered: boolean }>({
               id: recorded.value.id,
               ts: recorded.value.ts,
@@ -967,7 +967,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
               return fail(`session "${sessionId}" has no live agent to steer`)
             }
             runtime.mode.set(sessionId, 'manual', true)
-            if (!steerCaptain(captain, judged.text)) {
+            if (!steerCaptain(captain, { kind: 'user-topic' }, judged.text)) {
               return fail('the session rejected the message (steer failed)')
             }
             const state = runtime.mode.read(sessionId)

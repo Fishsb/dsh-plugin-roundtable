@@ -1322,7 +1322,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         for (const recipient of prepared.recipients) {
           if (recipient === CAPTAIN_KEY) {
             const steered = captainLive !== undefined && prepared.speaker !== CAPTAIN_KEY
-              && steerCaptain(captainLive, `RoundTable message from ${prepared.speaker}:\n\n${content}`)
+              && steerCaptain(captainLive, { kind: 'node', speaker: prepared.speaker }, content)
             outcomes.push(`captain:${steered ? 'live' : 'dropped'}`)
             continue
           }
@@ -1336,7 +1336,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       }
       if (prepared.kind === 'captain') {
         if (captainLive !== undefined && prepared.speaker !== CAPTAIN_KEY) {
-          const delivered = steerCaptain(captainLive, `RoundTable message from ${prepared.speaker}:\n\n${content}`)
+          const delivered = steerCaptain(captainLive, { kind: 'node', speaker: prepared.speaker }, content)
           return { delivered: delivered ? 'live' : 'dropped', work_item: workItem }
         }
         return { delivered: 'dropped', work_item: workItem }

@@ -144,8 +144,8 @@ const mutations = {
   19: {
     name: 'steer 把「先置模式再转交」对调（议题送达时主持人还不知道要按圆桌处理）',
     file: 'src/rpc.ts',
-    from: "            runtime.mode.set(sessionId, 'manual', true)\n            if (!steerCaptain(captain, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }",
-    to: "            if (!steerCaptain(captain, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }\n            runtime.mode.set(sessionId, 'manual', true)",
+    from: "            runtime.mode.set(sessionId, 'manual', true)\n            if (!steerCaptain(captain, { kind: 'user-topic' }, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }",
+    to: "            if (!steerCaptain(captain, { kind: 'user-topic' }, judged.text)) {\n              return fail('the session rejected the message (steer failed)')\n            }\n            runtime.mode.set(sessionId, 'manual', true)",
     // 对调后"两句都在"，所以那些 include 断言全绿 —— 只有顺序断言会响，
     // 响的就是它。这正是本变异存在的意义：证明顺序断言不是摆设。
     expect: '必须先置讨论模式再 steer',
@@ -153,7 +153,7 @@ const mutations = {
   20: {
     name: 'say 只落盘不唤醒主持人（气泡出现了却永远不会有人回应）',
     file: 'src/rpc.ts',
-    from: "            const delivered = captain === undefined\n              ? false\n              : steerCaptain(captain, `Message from the user (meeting group chat):\\n\\n${text}`)",
+    from: "            const delivered = captain === undefined\n              ? false\n              : steerCaptain(captain, { kind: 'meeting-group-chat' }, text)",
     to: '            const delivered = captain !== undefined',
     expect: 'say 没有唤醒主持人',
   },
@@ -202,9 +202,9 @@ const mutations = {
   27: {
     name: '唤醒主持人时裸传用户原文（主持人分不清是用户说的还是插件注入的）',
     file: 'src/rpc.ts',
-    from: 'steerCaptain(captain, `Message from the user (meeting group chat):\\n\\n${text}`)',
+    from: "steerCaptain(captain, { kind: 'meeting-group-chat' }, text)",
     to: 'steerCaptain(captain, text)',
-    expect: '唤醒时没有标明这条来自用户',
+    expect: '唤醒时没有声明出处',
   },
   28: {
     name: '空状态那一屏不画徽章（用户在这一屏打字后"切走仍开"完全不可见）',
@@ -222,6 +222,23 @@ const mutations = {
     from: 'if (state === null) return null',
     to: 'if (false) return null',
     expect: '真值未到前不得画徽章',
+  },
+  30: {
+    // 本次修复的**原始病灶**（2026-09-23 实测于 session-ef265a8a）：命令路径把议题
+    // 裸投给主持人，正文首行没有出处 —— 主持人读不出"这是用户给的议题"。
+    // 守卫⑦ 必须抓到这个形态，否则修了也白修（下次重构会再漏）。
+    name: '命令路径裸投议题（主持人读不出这句话是谁说的）',
+    file: 'src/index.ts',
+    from: "          steerCaptain(invocation.agent, { kind: 'user-topic' }, outcome.steerText)",
+    to: "          invocation.agent.steer(createUserMessage({ content: [{ type: 'text', text: outcome.steerText }], source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' } }))",
+    expect: '裸 steer',
+  },
+  31: {
+    name: '封皮工厂掏空（provenanceLabel 不再产出"来自用户"，投递变成无出处）',
+    file: 'src/members.ts',
+    from: "      return 'Message from the user (round-table topic):'",
+    to: "      return ''",
+    expect: 'provenanceLabel 缺少封皮片段',
   },
 }
 
@@ -256,7 +273,25 @@ function failingBlocks(output) {
 
 const url = new URL(`../${mutation.file}`, import.meta.url)
 const original = readFileSync(url, 'utf8')
-if (!original.includes(mutation.from)) {
+
+/**
+ * 行尾归一：锚点字面量按 **LF** 写，而磁盘上的源文件可能是 **CRLF**。
+ *
+ * 为什么必须做（2026-09-23 实测，属"让失败不可观测"类缺陷）：本机
+ * `core.autocrlf=true` 且仓内无 `.gitattributes` ⇒ `src/rpc.ts` 等工作区文件是 CRLF，
+ * 而多行锚点里的 `\n` 是 LF ⇒ `original.includes(from)` 恒 false ⇒ 探针在 `exit 3`
+ * 处"锚点没找到"就退出，**从来没在测任何东西**。实测 4 条已死（2/14/19/20，全在
+ * rpc.ts），而 `npm test` 不跑本文件 ⇒ 这四条失效对全部门禁**完全不可见**
+ * （已立 test/mutation-probe-health.test.mjs 为常驻门）。
+ *
+ * 归一放在**比较与替换**两处（而不是改写锚点字面量）：锚点保持可读的 LF 写法，
+ * 与工作区实际行尾解耦 —— 换到 LF 检出的环境（Linux/CI）同样成立。
+ */
+const eol = original.includes('\r\n') ? '\r\n' : '\n'
+const anchor = mutation.from.replace(/\n/g, eol)
+const replacement = mutation.to.replace(/\n/g, eol)
+
+if (!original.includes(anchor)) {
   console.error(`变异 ${id} 的锚点没找到（实现已变？）：${mutation.from.slice(0, 60)}`)
   process.exit(3)
 }
@@ -264,7 +299,7 @@ if (!original.includes(mutation.from)) {
 let failed = 0
 let attributed = false
 try {
-  writeFileSync(url, original.replace(mutation.from, mutation.to), 'utf8')
+  writeFileSync(url, original.replace(anchor, replacement), 'utf8')
   let output = ''
   try {
     output = execFileSync('npm test', { cwd: projectRoot, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
