@@ -29,21 +29,22 @@
 .viewTab {
   font-size: 12px;
   padding: 3px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  border: 1px solid var(--rt-border-strong);
   background: transparent;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
   cursor: pointer;
 }
 
 .viewTab:hover {
-  border-color: rgba(128, 128, 128, 0.6);
+  border-color: var(--rt-border-hover);
 }
 
 .viewTabActive {
   border-color: transparent;
-  background: var(--dsw-alias-brand-primary, #4d6bfe);
-  color: #ffffff;
+  background: var(--rt-brand);
+  color: var(--rt-on-accent);
   cursor: default;
 }
 
@@ -74,41 +75,43 @@
 .meetingSelect {
   font-size: 12px;
   padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid rgba(128, 128, 128, 0.45);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.8);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-primary);
   max-width: 220px;
 }
 
 .badge {
   font-size: 11px;
   padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  color: rgba(0, 0, 0, 0.65);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  border: 1px solid var(--rt-border-strong);
+  color: var(--rt-text-secondary);
 }
 
 .round {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
 }
 
 /* 标题区「针锋相对」入口：可点击打开评审窗口 */
 .reviewBadge {
   font-size: 11px;
   padding: 2px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(198, 40, 40, 0.45);
-  background: rgba(198, 40, 40, 0.06);
-  color: #c62828;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  border: 1px solid var(--rt-danger-border);
+  background: var(--rt-danger-tint);
+  color: var(--rt-danger);
   cursor: pointer;
   font-weight: 600;
   transition: background 120ms ease;
 }
 
 .reviewBadge:hover {
-  background: rgba(198, 40, 40, 0.14);
+  background: var(--rt-danger-tint-strong);
 }
 
 /* 说明：右栏那张评审摘要卡片的 `:hover` 规则曾留在这里，但它所属的三条卡片规则
@@ -124,10 +127,10 @@
   gap: 4px;
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.7);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-secondary);
   cursor: pointer;
   opacity: 0.75;
   transition: opacity 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -135,8 +138,8 @@
 
 .meetingDelete:hover {
   opacity: 1;
-  border-color: #c62828;
-  color: #c62828;
+  border-color: var(--rt-danger);
+  color: var(--rt-danger);
 }
 
 .budgetRow {
@@ -148,32 +151,35 @@
 
 .budgetLabel {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
 }
 
 .budgetBar {
   width: 90px;
   height: 5px;
-  border-radius: 999px;
-  background: rgba(128, 128, 128, 0.18);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  background: var(--rt-track);
   overflow: hidden;
 }
 
 .budgetFill {
   height: 100%;
-  border-radius: 999px;
-  background: #4d6bfe;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  background: var(--rt-brand);
 }
 
 .budgetFillTokens {
   height: 100%;
-  border-radius: 999px;
-  background: #10a37f;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  background: var(--rt-success);
 }
 
 .budgetValue {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--rt-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -183,21 +189,21 @@
   gap: 8px;
   flex-wrap: wrap;
   padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(214, 158, 46, 0.12);
-  border: 1px solid rgba(214, 158, 46, 0.4);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-warn-tint);
+  border: 1px solid var(--rt-warn-border);
 }
 
 .decisionTag {
   font-size: 11px;
   font-weight: 600;
-  color: #a06b00;
+  color: var(--rt-warn-text);
   flex: none;
 }
 
 .decisionQuestion {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--rt-text-secondary);
 }
 
 /* ---------- topology canvas ---------- */
@@ -207,9 +213,9 @@
   flex: 1;
   min-width: 320px;
   min-height: 420px;
-  border-radius: 12px;
-  background: #fafafa;
-  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: var(--rt-radius-md);
+  background: var(--rt-surface-canvas);
+  border: 1px solid var(--rt-border-soft);
   overflow: hidden;
 }
 
@@ -238,9 +244,10 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #c62828;
-  border: 1.5px solid #ffffff;
-  color: #ffffff;
+  corner-shape: round;
+  background: var(--rt-danger);
+  border: 1.5px solid var(--rt-surface-canvas);
+  color: var(--rt-on-accent);
   font-size: 12px;
   display: flex;
   align-items: center;
@@ -252,7 +259,7 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
-  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--rt-shadow-card);
 }
 
 .edgeRemoveActive {
@@ -263,76 +270,76 @@
 .edgeRemove:hover {
   opacity: 1;
   pointer-events: auto;
-  background: #b71c1c;
+  background: var(--rt-danger-strong);
 }
 
 .edgeForward {
-  stroke: rgba(90, 90, 90, 0.5);
+  stroke: var(--rt-line);
   stroke-width: 1.5;
 }
 
 .edgeBidirectional {
-  stroke: rgba(77, 107, 254, 0.7);
+  stroke: var(--rt-brand);
   stroke-width: 1.6;
 }
 
 .edgeArrow {
-  fill: rgba(90, 90, 90, 0.7);
+  fill: var(--rt-line);
 }
 
 .edgeSynthetic {
-  stroke: rgba(90, 90, 90, 0.28);
+  stroke: var(--rt-line-soft);
   stroke-width: 1.3;
   stroke-dasharray: 4 4;
 }
 
 .edgeArrowSynthetic {
-  fill: rgba(90, 90, 90, 0.38);
+  fill: var(--rt-line-soft);
 }
 
 /* Role-based accents so the topology reads at a glance: captain is the single
    "everything radiates from here" hub (warm gold), aggregator is the sink
    (cool teal), and expert↔expert wires stay neutral grey. */
 .edgeCaptain {
-  stroke: rgba(214, 158, 46, 0.85);
+  stroke: var(--rt-warn);
   stroke-width: 1.8;
 }
 
 .edgeAggregator {
-  stroke: rgba(16, 163, 127, 0.8);
+  stroke: var(--rt-success);
   stroke-width: 1.6;
 }
 
 .edgeSyntheticCaptain {
-  stroke: rgba(214, 158, 46, 0.45);
+  stroke: var(--rt-warn);
   stroke-width: 1.4;
   stroke-dasharray: 4 4;
 }
 
 .edgeSyntheticAggregator {
-  stroke: rgba(16, 163, 127, 0.4);
+  stroke: var(--rt-success);
   stroke-width: 1.4;
   stroke-dasharray: 4 4;
 }
 
 .edgeArrowCaptain {
-  fill: rgba(214, 158, 46, 0.9);
+  fill: var(--rt-warn);
 }
 
 .edgeArrowAggregator {
-  fill: rgba(16, 163, 127, 0.85);
+  fill: var(--rt-success);
 }
 
 .edgeArrowSyntheticCaptain {
-  fill: rgba(214, 158, 46, 0.5);
+  fill: var(--rt-warn);
 }
 
 .edgeArrowSyntheticAggregator {
-  fill: rgba(16, 163, 127, 0.45);
+  fill: var(--rt-success);
 }
 
 .dragLine {
-  stroke: #4d6bfe;
+  stroke: var(--rt-brand);
   stroke-width: 1.6;
   stroke-dasharray: 5 4;
   pointer-events: none;
@@ -346,8 +353,9 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #4d6bfe;
-  box-shadow: 0 0 10px 2px rgba(77, 107, 254, 0.7);
+  corner-shape: round;
+  background: var(--rt-brand);
+  box-shadow: 0 0 10px 2px var(--rt-brand-glow);
   pointer-events: none;
   z-index: 4;
   animation: rt-msg-flow 1.1s ease-out forwards;
@@ -370,14 +378,15 @@
   width: 68px;
   height: 68px;
   border-radius: 50%;
+  corner-shape: round;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: #ffffff;
-  border: 1.5px solid rgba(120, 120, 120, 0.4);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: var(--rt-surface-raised);
+  border: 1.5px solid var(--rt-border-strong);
+  box-shadow: var(--rt-shadow-card);
   user-select: none;
   z-index: 2;
 }
@@ -385,14 +394,14 @@
 .captainNode {
   width: 96px;
   height: 88px;
-  border-radius: 12px;
-  background: #202124;
+  border-radius: var(--rt-radius-md);
+  background: var(--rt-surface-contrast);
   border: none;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--rt-shadow-pop);
 }
 
 .captainNode .nodeLabel {
-  color: #e8eaed;
+  color: var(--rt-text-on-contrast);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
@@ -403,13 +412,13 @@
   width: 74px;
   height: 74px;
   border-radius: 14px;
-  background: #f3f4f6;
-  border: 1.5px dashed rgba(120, 120, 120, 0.5);
+  background: var(--rt-surface-subtle);
+  border: 1.5px dashed var(--rt-border-strong);
 }
 
 .nodeLabel {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--rt-text-primary);
   text-align: center;
   line-height: 1.3;
   max-width: 62px;
@@ -434,11 +443,12 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
+  corner-shape: round;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 2px var(--rt-ring-soft);
 }
 
 /* 厂商 logo 图：圆形裁切 + contain 防切边，品牌色底垫在透明图后面。 */
@@ -446,13 +456,14 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
+  corner-shape: round;
   object-fit: contain;
   padding: 2px;
   box-sizing: border-box;
 }
 
 .avatarAbbr {
-  color: #ffffff;
+  color: var(--rt-on-accent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.3px;
@@ -461,21 +472,21 @@
 
 .nodeMeta {
   font-size: 10px;
-  color: #10a37f;
+  color: var(--rt-success);
   min-height: 12px;
 }
 
 /* A node that was added then removed: keep it visible so the topology still
    shows which models participated, but degrade it (greyed, no pulse, muted). */
 .nodeRemoved {
-  background: #f4f4f4;
-  border-color: rgba(128, 128, 128, 0.35);
+  background: var(--rt-surface-subtle);
+  border-color: var(--rt-border-strong);
   box-shadow: none;
   opacity: 0.72;
 }
 
 .nodeRemoved .nodeLabel {
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   text-decoration: line-through;
 }
 
@@ -491,12 +502,12 @@
 
 @keyframes roundtable-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(77, 107, 254, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
-    border-color: rgba(77, 107, 254, 0.75);
+    box-shadow: 0 0 0 0 var(--rt-brand-ring-strong), var(--rt-shadow-card);
+    border-color: var(--rt-brand);
   }
   50% {
-    box-shadow: 0 0 0 9px rgba(77, 107, 254, 0), 0 2px 8px rgba(0, 0, 0, 0.08);
-    border-color: rgba(77, 107, 254, 0.45);
+    box-shadow: 0 0 0 9px transparent, var(--rt-shadow-card);
+    border-color: var(--rt-brand);
   }
 }
 
@@ -509,9 +520,10 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 2px solid #4d6bfe;
-  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.15);
+  corner-shape: round;
+  background: var(--rt-surface-raised);
+  border: 2px solid var(--rt-brand);
+  box-shadow: 0 0 0 2px var(--rt-brand-ring);
   cursor: crosshair;
   opacity: 0;
   transition: opacity 120ms ease, transform 120ms ease, box-shadow 120ms ease;
@@ -525,8 +537,8 @@
 
 .port:hover {
   transform: scale(1.25);
-  box-shadow: 0 0 0 4px rgba(77, 107, 254, 0.28);
-  background: #4d6bfe;
+  box-shadow: 0 0 0 4px var(--rt-brand-ring-strong);
+  background: var(--rt-brand);
 }
 
 /* Placement: centered on each rim, slightly outside the 68px circle. */
@@ -555,9 +567,9 @@
 
 .digest {
   flex: none;
-  border: 1px solid rgba(128, 128, 128, 0.2);
+  border: 1px solid var(--rt-border-soft);
   border-radius: 10px;
-  background: #fdfdfd;
+  background: var(--rt-surface-raised);
   font-size: 12px;
 }
 
@@ -565,7 +577,7 @@
   cursor: pointer;
   padding: 6px 10px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
 }
 
 .digestBody {
@@ -576,7 +588,7 @@
   font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
 }
 
 /* ---------- sidebar ---------- */
@@ -602,10 +614,11 @@
 
 .pendingBadge {
   font-size: 11px;
-  color: #b26a00;
-  background: rgba(255, 193, 7, 0.14);
-  border: 1px solid rgba(255, 193, 7, 0.5);
-  border-radius: 999px;
+  color: var(--rt-warn-text);
+  background: var(--rt-warn-tint);
+  border: 1px solid var(--rt-warn-border);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -616,16 +629,16 @@
 /* 专家行"待移除"标记（用户已删除、主持人下一轮执行）。 */
 .agentQueuedRemove {
   font-size: 10px;
-  color: #b26a00;
+  color: var(--rt-warn-text);
   flex: none;
   font-weight: 600;
 }
 
 .panel {
   flex: none;
-  border: 1px solid rgba(128, 128, 128, 0.18);
+  border: 1px solid var(--rt-border-soft);
   border-radius: 10px;
-  background: #fdfdfd;
+  background: var(--rt-surface-raised);
   overflow: hidden;
 }
 
@@ -634,23 +647,24 @@
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
-  background: #fafafa;
+  border-bottom: 1px solid var(--rt-border-soft);
+  background: var(--rt-surface-canvas);
 }
 
 .panelTitle {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
 }
 
 .panelAdd {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid rgba(128, 128, 128, 0.4);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.6);
+  corner-shape: round;
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-secondary);
   font-size: 12px;
   line-height: 16px;
   text-align: center;
@@ -660,8 +674,8 @@
 }
 
 .panelAdd:hover {
-  border-color: #4d6bfe;
-  color: #4d6bfe;
+  border-color: var(--rt-brand);
+  color: var(--rt-brand);
 }
 
 .panelBody {
@@ -683,6 +697,7 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
+  corner-shape: round;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -690,7 +705,7 @@
 }
 
 .agentAbbr {
-  color: #ffffff;
+  color: var(--rt-on-accent);
   font-size: 9px;
   font-weight: 700;
 }
@@ -703,14 +718,14 @@
 .agentName {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--rt-text-primary);
 }
 
 /* 长 role 直接换行显示（原「点击展开」能力的零新状态替代：
    agents 行本就含 role，tasks 面板并进来后不再需要单独展开态）。 */
 .agentRole {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   line-height: 1.4;
   white-space: normal;
   word-break: break-word;
@@ -718,13 +733,13 @@
 
 .agentStatus {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
   flex: none;
 }
 
 .agentStatusWorking {
   font-size: 10px;
-  color: #10a37f;
+  color: var(--rt-success);
   flex: none;
   font-weight: 600;
 }
@@ -739,20 +754,20 @@
 }
 
 .agentRowRemoved .agentName {
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   text-decoration: line-through;
 }
 
 .agentStatusRemoved {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--rt-text-caption);
   font-style: italic;
   flex: none;
 }
 
 .panelEmpty {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
   line-height: 1.5;
 }
 
@@ -761,7 +776,7 @@
   flex-direction: column;
   gap: 2px;
   padding-bottom: 6px;
-  border-bottom: 1px dashed rgba(128, 128, 128, 0.15);
+  border-bottom: 1px dashed var(--rt-border-soft);
 }
 
 .logRow:last-child {
@@ -778,18 +793,18 @@
 .logFrom {
   font-size: 10px;
   font-weight: 600;
-  color: rgba(77, 107, 254, 0.9);
+  color: var(--rt-brand);
 }
 
 .logTime {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--rt-text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
 .logText {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--rt-text-secondary);
   line-height: 1.45;
 }
 
@@ -799,10 +814,10 @@
   position: fixed;
   z-index: 1000;
   min-width: 170px;
-  background: #ffffff;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-  border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
+  box-shadow: var(--rt-shadow-pop);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -810,16 +825,16 @@
 
 .contextMenuTitle {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   padding: 4px 10px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid var(--rt-border-soft);
   margin-bottom: 4px;
 }
 
 /* 决策横幅的指路句（批次 A ⑨）：只读横幅，不加按钮。 */
 .decisionHint {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
   margin-left: 8px;
   line-height: 1.45;
 }
@@ -827,9 +842,9 @@
 /* 单线制下连线的真实含义：菜单首行常驻说明（批次 A ⑧）。 */
 .contextMenuNote {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
   padding: 0 10px 6px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+  border-bottom: 1px solid var(--rt-border-soft);
   margin-bottom: 4px;
   max-width: 260px;
   line-height: 1.45;
@@ -842,9 +857,9 @@
   bottom: 10px;
   z-index: 5;
   max-width: 300px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 8px;
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 6px 9px;
   pointer-events: none;
   line-height: 1.45;
@@ -854,13 +869,13 @@
   display: block;
   font-size: 10px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
   margin-bottom: 2px;
 }
 
 .legendText {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
 }
 
 .contextMenuItem,
@@ -870,21 +885,21 @@
   text-align: left;
   font-size: 13px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--rt-radius-sm);
   cursor: pointer;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--rt-text-primary);
 }
 
 .contextMenuItem:hover {
-  background: rgba(77, 107, 254, 0.1);
+  background: var(--rt-brand-tint);
 }
 
 .contextMenuItemDanger {
-  color: #c62828;
+  color: var(--rt-danger);
 }
 
 .contextMenuItemDanger:hover {
-  background: rgba(198, 40, 40, 0.08);
+  background: var(--rt-danger-tint);
 }
 
 /* ---------- empty / error ---------- */
@@ -903,12 +918,12 @@
 .emptyTitle {
   font-size: 15px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--rt-text-secondary);
 }
 
 .emptyHint {
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   max-width: 420px;
   line-height: 1.6;
 }
@@ -930,7 +945,7 @@
 
 .fetchFailed {
   font-size: 11px;
-  color: #c62828;
+  color: var(--rt-danger);
 }
 
 /* Connect-result toast: a short-lived banner at the top of the topology
@@ -945,11 +960,11 @@
   transform: translateX(-50%);
   z-index: 6;
   max-width: 90%;
-  background: #ffffff;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  border-radius: 8px;
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-strong);
+  border-radius: var(--rt-radius-sm);
   padding: 8px 16px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--rt-shadow-pop);
   pointer-events: none;
   display: flex;
   align-items: center;
@@ -961,13 +976,13 @@
 
 .toastOk {
   font-size: 12.5px;
-  color: #1a1a1a;
+  color: var(--rt-text-primary);
   font-weight: 500;
 }
 
 .toastErr {
   font-size: 12.5px;
-  color: #b3261e;
+  color: var(--rt-danger);
   font-weight: 500;
 }
 
@@ -977,7 +992,7 @@
   position: fixed;
   inset: 0;
   z-index: 1200;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--rt-surface-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -988,9 +1003,9 @@
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  background: var(--rt-surface-raised);
+  border-radius: var(--rt-radius-md);
+  box-shadow: var(--rt-shadow-pop);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -1000,15 +1015,15 @@
 .manageTitle {
   font-size: 14px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--rt-text-primary);
 }
 
 .managePendingNote {
   font-size: 11px;
-  color: #7a5b00;
-  background: rgba(255, 193, 7, 0.12);
-  border: 1px solid rgba(255, 193, 7, 0.45);
-  border-radius: 8px;
+  color: var(--rt-warn-text);
+  background: var(--rt-warn-tint);
+  border: 1px solid var(--rt-warn-border);
+  border-radius: var(--rt-radius-sm);
   padding: 6px 10px;
   line-height: 1.5;
 }
@@ -1016,7 +1031,7 @@
 .manageSectionTitle {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
   margin-top: 2px;
 }
 
@@ -1026,10 +1041,10 @@
   gap: 6px;
   max-height: 220px;
   overflow-y: auto;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 8px;
-  background: #fafafa;
+  background: var(--rt-surface-canvas);
 }
 
 .manageRow {
@@ -1042,27 +1057,29 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
+  corner-shape: round;
   display: flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  background: rgba(255, 193, 7, 0.25);
-  color: #b26a00;
+  background: var(--rt-warn-tint-strong);
+  color: var(--rt-warn-text);
   font-size: 14px;
   font-weight: 700;
 }
 
 .manageStatusTag {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
   flex: none;
 }
 
 .managePendingTag {
   font-size: 10px;
-  color: #b26a00;
-  background: rgba(255, 193, 7, 0.15);
-  border-radius: 999px;
+  color: var(--rt-warn-text);
+  background: var(--rt-warn-tint);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   flex: none;
   font-weight: 600;
@@ -1071,26 +1088,26 @@
 .manageRemoveBtn {
   font-size: 11px;
   padding: 2px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(198, 40, 40, 0.4);
-  background: #ffffff;
-  color: #c62828;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-danger-border);
+  background: var(--rt-surface-raised);
+  color: var(--rt-danger);
   cursor: pointer;
   flex: none;
 }
 
 .manageRemoveBtn:hover {
-  background: rgba(198, 40, 40, 0.08);
+  background: var(--rt-danger-tint);
 }
 
 .manageForm {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 10px;
-  background: #fafafa;
+  background: var(--rt-surface-canvas);
 }
 
 .manageFormRow {
@@ -1101,7 +1118,7 @@
 
 .manageLabel {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--rt-text-secondary);
   width: 40px;
   flex: none;
 }
@@ -1111,10 +1128,10 @@
   min-width: 0;
   font-size: 12px;
   padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.85);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-primary);
 }
 
 .manageSelect {
@@ -1122,25 +1139,25 @@
   min-width: 0;
   font-size: 12px;
   padding: 3px 6px;
-  border-radius: 6px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.85);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-primary);
 }
 
 .manageAddBtn {
   align-self: flex-end;
   font-size: 12px;
   padding: 4px 14px;
-  border-radius: 6px;
+  border-radius: var(--rt-radius-sm);
   border: none;
-  background: #4d6bfe;
-  color: #ffffff;
+  background: var(--rt-brand);
+  color: var(--rt-on-accent);
   cursor: pointer;
 }
 
 .manageAddBtn:hover {
-  background: #3b58e8;
+  background: var(--rt-brand-hover);
 }
 
 .manageFooter {
@@ -1148,30 +1165,30 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  border-top: 1px solid var(--rt-border-soft);
   padding-top: 10px;
 }
 
 .manageHint {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   line-height: 1.5;
 }
 
 .manageCloseBtn {
   font-size: 12px;
   padding: 4px 14px;
-  border-radius: 6px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.7);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-secondary);
   cursor: pointer;
   flex: none;
 }
 
 .manageCloseBtn:hover {
-  border-color: #4d6bfe;
-  color: #4d6bfe;
+  border-color: var(--rt-brand);
+  color: var(--rt-brand);
 }
 
 /* ---------- 右栏面板可见性（R3：设置页点圆圈决定显示） ---------- */
@@ -1186,16 +1203,16 @@
 /* skill 传递方式的简短标注（与面板标题同一行，保持界面工整）。 */
 .skillDeliveryLabel {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
   font-weight: 400;
 }
 
 .kbPathRow {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.65);
-  background: rgba(77, 107, 254, 0.07);
-  border: 1px solid rgba(77, 107, 254, 0.25);
-  border-radius: 6px;
+  color: var(--rt-text-secondary);
+  background: var(--rt-brand-tint);
+  border: 1px solid var(--rt-brand-border);
+  border-radius: var(--rt-radius-sm);
   padding: 5px 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -1207,10 +1224,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 10px;
-  background: #fafafa;
+  background: var(--rt-surface-canvas);
 }
 
 .kbList {
@@ -1219,10 +1236,10 @@
   gap: 4px;
   max-height: 240px;
   overflow-y: auto;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 8px;
-  background: #fafafa;
+  background: var(--rt-surface-canvas);
 }
 
 .kbRow {
@@ -1242,7 +1259,7 @@
 .kbName {
   flex: 1;
   min-width: 0;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--rt-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1250,13 +1267,13 @@
 
 .kbMeta {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
   flex: none;
 }
 
 .kbError {
   font-size: 12px;
-  color: #c62828;
+  color: var(--rt-danger);
   line-height: 1.5;
 }
 
@@ -1267,9 +1284,9 @@
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 48px);
   overflow-y: auto;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  background: var(--rt-surface-raised);
+  border-radius: var(--rt-radius-md);
+  box-shadow: var(--rt-shadow-pop);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -1287,7 +1304,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-right: 1px solid rgba(128, 128, 128, 0.15);
+  border-right: 1px solid var(--rt-border-soft);
   padding-right: 12px;
   max-height: 60vh;
   overflow-y: auto;
@@ -1304,16 +1321,16 @@
 .reviewSectionTitle {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
 }
 
 .reviewQuestion {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
-  background: rgba(77, 107, 254, 0.07);
-  border: 1px solid rgba(77, 107, 254, 0.25);
-  border-radius: 8px;
+  color: var(--rt-text-primary);
+  background: var(--rt-brand-tint);
+  border: 1px solid var(--rt-brand-border);
+  border-radius: var(--rt-radius-sm);
   padding: 8px 10px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1322,10 +1339,10 @@
 
 .reviewPlan {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.75);
-  background: #fafafa;
-  border: 1px solid rgba(128, 128, 128, 0.18);
-  border-radius: 8px;
+  color: var(--rt-text-secondary);
+  background: var(--rt-surface-canvas);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 8px 10px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1342,10 +1359,10 @@
 }
 
 .reviewItem {
-  border: 1px solid rgba(128, 128, 128, 0.18);
+  border: 1px solid var(--rt-border-soft);
   border-radius: 10px;
   padding: 10px 12px;
-  background: #fdfdfd;
+  background: var(--rt-surface-raised);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1360,15 +1377,16 @@
 .reviewNode {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
   flex: 1;
 }
 
 .reviewSeq {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.6);
-  background: rgba(0, 0, 0, 0.06);
-  border-radius: 999px;
+  color: var(--rt-text-secondary);
+  background: var(--rt-fill-inset);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   font-weight: 600;
   white-space: nowrap;
@@ -1376,16 +1394,17 @@
 
 .reviewEndorsed {
   font-size: 10px;
-  color: #c62828;
-  background: rgba(198, 40, 40, 0.08);
-  border-radius: 999px;
+  color: var(--rt-danger);
+  background: var(--rt-danger-tint);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   font-weight: 600;
 }
 
 .reviewContent {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1399,41 +1418,42 @@
 .reviewSupport {
   font-size: 11px;
   padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(198, 40, 40, 0.45);
-  background: #ffffff;
-  color: #c62828;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-danger-border);
+  background: var(--rt-surface-raised);
+  color: var(--rt-danger);
   cursor: pointer;
 }
 
 .reviewSupport:hover {
-  background: rgba(198, 40, 40, 0.08);
+  background: var(--rt-danger-tint);
 }
 
 .reviewSupportDone {
   font-size: 11px;
   padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(198, 40, 40, 0.3);
-  background: rgba(198, 40, 40, 0.08);
-  color: #c62828;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-danger-border);
+  background: var(--rt-danger-tint);
+  color: var(--rt-danger);
   cursor: default;
 }
 
 .reviewDimension {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 999px;
+  color: var(--rt-text-tertiary);
+  background: var(--rt-fill-inset);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   white-space: nowrap;
 }
 
 .reviewQuote {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.5);
-  background: rgba(0, 0, 0, 0.04);
-  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  color: var(--rt-text-tertiary);
+  background: var(--rt-fill-inset);
+  border-left: 3px solid var(--rt-border-soft);
   padding: 4px 8px;
   border-radius: 0 6px 6px 0;
   line-height: 1.5;
@@ -1441,18 +1461,20 @@
 
 .reviewPending {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.5);
-  background: rgba(0, 0, 0, 0.06);
-  border-radius: 999px;
+  color: var(--rt-text-tertiary);
+  background: var(--rt-fill-inset);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   font-weight: 500;
 }
 
 .reviewRejected {
   font-size: 10px;
-  color: #2e7d32;
-  background: rgba(46, 125, 50, 0.08);
-  border-radius: 999px;
+  color: var(--rt-success);
+  background: var(--rt-success-tint);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   padding: 2px 8px;
   font-weight: 600;
 }
@@ -1460,25 +1482,25 @@
 .reviewReject {
   font-size: 11px;
   padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(46, 125, 50, 0.45);
-  background: #ffffff;
-  color: #2e7d32;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-success-border);
+  background: var(--rt-surface-raised);
+  color: var(--rt-success);
   cursor: pointer;
   margin-left: 8px;
 }
 
 .reviewReject:hover {
-  background: rgba(46, 125, 50, 0.08);
+  background: var(--rt-success-tint);
 }
 
 .reviewRejectDone {
   font-size: 11px;
   padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(46, 125, 50, 0.3);
-  background: rgba(46, 125, 50, 0.08);
-  color: #2e7d32;
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-success-border);
+  background: var(--rt-success-tint);
+  color: var(--rt-success);
   cursor: default;
   margin-left: 8px;
 }
@@ -1486,7 +1508,7 @@
 @media (prefers-reduced-motion: reduce) {
   .breathing {
     animation: none;
-    border-color: rgba(77, 107, 254, 0.6);
+    border-color: var(--rt-brand);
   }
 }
 
@@ -1499,9 +1521,9 @@
 
 .reviewEvidence {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.6);
-  background: rgba(25, 118, 210, 0.06);
-  border-left: 3px solid rgba(25, 118, 210, 0.35);
+  color: var(--rt-text-secondary);
+  background: var(--rt-info-tint);
+  border-left: 3px solid var(--rt-brand-border);
   padding: 4px 8px;
   border-radius: 0 6px 6px 0;
   line-height: 1.5;
@@ -1515,9 +1537,9 @@
 
 .reviewRejectReason {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.6);
-  background: rgba(0, 0, 0, 0.03);
-  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  color: var(--rt-text-secondary);
+  background: var(--rt-fill-inset);
+  border-left: 3px solid var(--rt-border-soft);
   padding: 4px 8px;
   border-radius: 0 6px 6px 0;
   line-height: 1.5;
@@ -1533,7 +1555,7 @@
 
 .reviewRejectLabel {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
 }
 
 .reviewRejectInput {
@@ -1541,9 +1563,9 @@
   box-sizing: border-box;
   font-size: 12px;
   padding: 6px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-surface-raised);
   color: inherit;
   resize: vertical;
   min-height: 34px;
@@ -1563,15 +1585,15 @@
   flex-wrap: wrap;
   margin-top: 6px;
   padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-fill-inset);
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--rt-text-secondary);
 }
 
 .reviewImpactWarn {
-  background: rgba(237, 108, 2, 0.1);
-  color: #b26a00;
+  background: var(--rt-warn-tint);
+  color: var(--rt-warn-text);
   font-weight: 500;
 }
 
@@ -1582,10 +1604,10 @@
   z-index: 60;
   width: 300px;
   max-width: calc(100vw - 32px);
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 12px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  background: var(--rt-surface-raised);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-md);
+  box-shadow: var(--rt-shadow-pop);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1595,7 +1617,7 @@
 .feedbackBarTitle {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
   line-height: 1.5;
 }
 
@@ -1607,15 +1629,16 @@
 .feedbackRating {
   font-size: 12px;
   padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(77, 107, 254, 0.4);
-  background: rgba(77, 107, 254, 0.06);
-  color: #4d6bfe;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  border: 1px solid var(--rt-brand-border);
+  background: var(--rt-brand-tint);
+  color: var(--rt-brand);
   cursor: pointer;
 }
 
 .feedbackRating:hover {
-  background: rgba(77, 107, 254, 0.14);
+  background: var(--rt-brand-tint-strong);
 }
 
 .feedbackBarNote {
@@ -1623,9 +1646,9 @@
   box-sizing: border-box;
   font-size: 12px;
   padding: 6px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-surface-raised);
   color: inherit;
   font-family: inherit;
 }
@@ -1638,15 +1661,15 @@
 .feedbackSkip {
   font-size: 11px;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--rt-radius-sm);
   border: none;
   background: transparent;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   cursor: pointer;
 }
 
 .feedbackSkip:hover {
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
 }
 
 /* 网关摘要区的第二视图标题（批次 B ③：原 activity 面板并入此处）。 */
@@ -1654,7 +1677,7 @@
   margin: 8px 0 4px;
   font-size: 10px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
 }
 
 /* agents 脚部的技能行（批次 B ④：原 skills 面板并入此处）。 */
@@ -1665,12 +1688,12 @@
   gap: 8px;
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px solid rgba(128, 128, 128, 0.15);
+  border-top: 1px solid var(--rt-border-soft);
 }
 
 .agentSkillLabel {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--rt-text-tertiary);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -1679,14 +1702,14 @@
 .usageStrip {
   margin-bottom: 6px;
   padding: 6px 8px;
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 6px;
-  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-fill-inset);
 }
 
 .usageNote {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   line-height: 1.4;
   margin-bottom: 4px;
 }
@@ -1696,7 +1719,7 @@
   justify-content: space-between;
   gap: 8px;
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
 }
 
 .usageKey {
@@ -1714,23 +1737,87 @@
   align-items: center;
   gap: 4px;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   font-size: 10px;
   font-weight: 600;
-  border: 1px solid rgba(128, 128, 128, 0.35);
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(128, 128, 128, 0.08);
+  border: 1px solid var(--rt-border-strong);
+  color: var(--rt-text-tertiary);
+  background: var(--rt-fill-inset);
   white-space: nowrap;
 }
 
 .modeBadgeOn {
-  border-color: rgba(38, 145, 92, 0.55);
-  color: #1c6b45;
-  background: rgba(38, 145, 92, 0.12);
+  border-color: var(--rt-success-border);
+  color: var(--rt-success);
+  background: var(--rt-success-tint);
 }
 
 .modeBadgeManual {
   margin-left: 4px;
   font-weight: 400;
   opacity: 0.75;
+}
+
+/* ---------- 键盘焦点环（宿主规范：2px brand-primary + offset） ----------
+ * 本模块此前**一条 :focus-visible 都没有** —— 键盘用户看不出焦点在哪。
+ * 宿主每个可聚焦控件都自带这条规则（primitives 全部 .module.css），这里补齐。
+ * 用 :focus-visible 而非 :focus：鼠标点击不该留下焦点环。 */
+.viewTab:focus-visible,
+.reviewBadge:focus-visible,
+.meetingDelete:focus-visible,
+.edgeRemove:focus-visible,
+.panelAdd:focus-visible,
+.manageAddBtn:focus-visible,
+.manageCloseBtn:focus-visible,
+.manageRemoveBtn:focus-visible,
+.reviewSupportDone:focus-visible,
+.reviewReject:focus-visible,
+.reviewRejectDone:focus-visible,
+.contextMenuItem:focus-visible,
+.contextMenuItemDanger:focus-visible,
+.feedbackRating:focus-visible,
+.feedbackSkip:focus-visible {
+  outline: var(--rt-focus-ring);
+  outline-offset: var(--rt-focus-offset);
+}
+
+.meetingSelect:focus-visible,
+.manageSelect:focus-visible,
+.manageInput:focus-visible,
+.reviewRejectInput:focus-visible,
+.feedbackBarNote:focus-visible {
+  outline: none;
+  border-color: var(--rt-brand);
+}
+/* ---------- 动效降级（prefers-reduced-motion） ----------
+ * 只为**本模块内真的带 animation/transition 的选择器**生成规则，
+ * 不用通配 + !important —— 那条写法会连带影响宿主其它 UI 与模块内无关元素。
+ * 宿主先例：primitives 的 StateDot / SegmentedControl 各自只关自己的动效。
+ * 作用域收在 .root 内，绝不出本模块。 */
+@media (prefers-reduced-motion: reduce) {
+  .root .msgPulse {
+    animation: none;
+  }
+  .root .breathing {
+    animation: none;
+  }
+  .root .reviewBadge,
+  .root .meetingDelete,
+  .root .edgeRemove,
+  .root .port {
+    transition: none;
+  }
+}
+
+/* ---------- 禁用态 ----------
+ * 此前本文件 :hover 有 17 条、:disabled 有 0 条 —— 三个真被 disabled 的控件
+ * （用量按钮 / 模型下拉 / 档位下拉）看起来和可点的一模一样。
+ * 规格照宿主 Button.module.css：opacity .4 + cursor default。 */
+.panelAdd:disabled,
+.manageSelect:disabled,
+.manageAddBtn:disabled,
+.manageRemoveBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }

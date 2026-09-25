@@ -15,23 +15,23 @@
 .label {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
 }
 
 .select,
 .input {
   font-size: 13px;
   padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.85);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-primary);
   max-width: 260px;
 }
 
 .hint {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   line-height: 1.6;
 }
 
@@ -55,8 +55,9 @@
   position: relative;
   width: 36px;
   height: 20px;
-  border-radius: 999px;
-  background: rgba(128, 128, 128, 0.35);
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
+  background: var(--rt-track);
   transition: background 140ms ease;
   flex: none;
 }
@@ -69,13 +70,14 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  corner-shape: round;
+  background: var(--rt-surface-raised);
+  box-shadow: var(--rt-shadow-card);
   transition: transform 140ms ease;
 }
 
 .switchInput:checked + .switchTrack {
-  background: #4d6bfe;
+  background: var(--rt-brand);
 }
 
 .switchInput:checked + .switchTrack::after {
@@ -84,16 +86,16 @@
 
 .switchLabel {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
 }
 
 .warning {
   font-size: 12px;
-  color: #a06b00;
+  color: var(--rt-warn-text);
   padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(214, 158, 46, 0.12);
-  border: 1px solid rgba(214, 158, 46, 0.4);
+  border-radius: var(--rt-radius-sm);
+  background: var(--rt-warn-tint);
+  border: 1px solid var(--rt-warn-border);
   line-height: 1.6;
 }
 
@@ -106,10 +108,10 @@
 .saveButton {
   font-size: 13px;
   padding: 7px 18px;
-  border-radius: 8px;
+  border-radius: var(--rt-radius-sm);
   border: none;
-  background: #4d6bfe;
-  color: #ffffff;
+  background: var(--rt-brand);
+  color: var(--rt-on-accent);
   cursor: pointer;
 }
 
@@ -120,29 +122,29 @@
 
 .saved {
   font-size: 12px;
-  color: #10a37f;
+  color: var(--rt-success);
 }
 
 .failed {
   font-size: 12px;
-  color: #c62828;
+  color: var(--rt-danger);
 }
 
 .note {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
 }
 
 .sectionDivider {
   height: 1px;
-  background: rgba(128, 128, 128, 0.2);
+  background: var(--rt-border-soft);
   margin: 2px 0;
 }
 
 .sectionTitle {
   font-size: 13px;
   font-weight: 700;
-  color: rgba(0, 0, 0, 0.75);
+  color: var(--rt-text-secondary);
 }
 
 /* ---------- R3：右栏面板显示（点圆圈决定显示/隐藏） ---------- */
@@ -161,39 +163,41 @@
   gap: 6px;
   font-size: 12px;
   padding: 5px 10px 5px 8px;
-  border-radius: 999px;
+  border-radius: var(--rt-radius-pill);
+  corner-shape: round;
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 /* 点亮 = 显示；暗掉 = 隐藏。 */
 .panelToggleOn {
-  border: 1px solid rgba(77, 107, 254, 0.45);
-  background: rgba(77, 107, 254, 0.10);
-  color: rgba(0, 0, 0, 0.8);
+  border: 1px solid var(--rt-brand);
+  background: var(--rt-brand-tint);
+  color: var(--rt-text-primary);
 }
 
 .panelToggleOff {
-  border: 1px solid rgba(128, 128, 128, 0.3);
+  border: 1px solid var(--rt-border-soft);
   background: transparent;
-  color: rgba(0, 0, 0, 0.38);
+  color: var(--rt-text-tertiary);
 }
 
 .panelDot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  corner-shape: round;
   flex: none;
   border: 1px solid transparent;
 }
 
 .panelToggleOn .panelDot {
-  background: #4d6bfe;
+  background: var(--rt-brand);
 }
 
 .panelToggleOff .panelDot {
   background: transparent;
-  border-color: rgba(128, 128, 128, 0.6);
+  border-color: var(--rt-border-strong);
 }
 
 .panelToggleLabel {
@@ -202,9 +206,9 @@
 
 .feedbackNote {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.55);
-  background: rgba(77, 107, 254, 0.06);
-  border-left: 3px solid rgba(77, 107, 254, 0.3);
+  color: var(--rt-text-tertiary);
+  background: var(--rt-brand-tint);
+  border-left: 3px solid var(--rt-brand-border);
   padding: 6px 10px;
   border-radius: 0 8px 8px 0;
   line-height: 1.6;
@@ -220,17 +224,17 @@
 
 .feedbackItem {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.7);
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  color: var(--rt-text-secondary);
+  background: var(--rt-fill-inset);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 8px 10px;
   line-height: 1.5;
 }
 
 .feedbackMeta {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
 }
 
 .feedbackNoteText {
@@ -242,16 +246,16 @@
 .feedbackClearBtn {
   font-size: 12px;
   padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(198, 40, 40, 0.4);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-danger-border);
   background: transparent;
-  color: #c62828;
+  color: var(--rt-danger);
   cursor: pointer;
   align-self: flex-start;
 }
 
 .feedbackClearBtn:hover {
-  background: rgba(198, 40, 40, 0.06);
+  background: var(--rt-danger-tint);
 }
 
 /* ---------- B3：用户自建角色预设（扁平、克制，与 panelToggles 同观感） ---------- */
@@ -271,10 +275,10 @@
   /* 形态 A：条目要能换行，第二行按钮与行内面板才落在下方而不是第四列。 */
   flex-wrap: wrap;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.7);
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(128, 128, 128, 0.2);
-  border-radius: 8px;
+  color: var(--rt-text-secondary);
+  background: var(--rt-fill-inset);
+  border: 1px solid var(--rt-border-soft);
+  border-radius: var(--rt-radius-sm);
   padding: 8px 10px;
 }
 
@@ -289,7 +293,7 @@
 .presetName {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.8);
+  color: var(--rt-text-primary);
 }
 
 /* 缺省预设徽标（B3+ 单一缺省值）。 */
@@ -299,21 +303,21 @@
   border-radius: 4px;
   font-size: 10px;
   font-weight: 500;
-  color: #ffffff;
-  background: #4d6bfe;
+  color: var(--rt-on-accent);
+  background: var(--rt-brand);
   vertical-align: middle;
 }
 
 .presetMeta {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.5);
+  color: var(--rt-text-tertiary);
   line-height: 1.5;
   word-break: break-word;
 }
 
 .presetRoute {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
 }
 
 .presetActions {
@@ -330,41 +334,41 @@
 
 .presetPanelHint {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
 }
 
 .presetPanelWarn {
   font-size: 11px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--rt-text-tertiary);
 }
 
 /* 条目的保存回执：贴在**被改的那一条**上，而不是页面底部。 */
 .presetItemNotice {
   font-size: 11px;
-  color: #2e7d32;
+  color: var(--rt-success);
 }
 
 .presetBtn {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
   background: transparent;
-  color: rgba(0, 0, 0, 0.7);
+  color: var(--rt-text-secondary);
   cursor: pointer;
 }
 
 .presetBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--rt-fill-inset);
 }
 
 .presetDeleteBtn {
-  border-color: rgba(198, 40, 40, 0.35);
-  color: #c62828;
+  border-color: var(--rt-danger-border);
+  color: var(--rt-danger);
 }
 
 .presetDeleteBtn:hover {
-  background: rgba(198, 40, 40, 0.06);
+  background: var(--rt-danger-tint);
 }
 
 .presetForm {
@@ -372,9 +376,9 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border-radius: 8px;
-  border: 1px dashed rgba(128, 128, 128, 0.35);
-  background: rgba(0, 0, 0, 0.015);
+  border-radius: var(--rt-radius-sm);
+  border: 1px dashed var(--rt-border-strong);
+  background: var(--rt-fill-inset);
 }
 
 .presetFormRow {
@@ -393,10 +397,10 @@
   min-width: 0;
   font-size: 13px;
   padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.4);
-  background: #ffffff;
-  color: rgba(0, 0, 0, 0.85);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
+  background: var(--rt-surface-raised);
+  color: var(--rt-text-primary);
 }
 
 .presetFormActions {
@@ -408,10 +412,10 @@
 .presetAddBtn {
   font-size: 13px;
   padding: 7px 18px;
-  border-radius: 8px;
+  border-radius: var(--rt-radius-sm);
   border: none;
-  background: #4d6bfe;
-  color: #ffffff;
+  background: var(--rt-brand);
+  color: var(--rt-on-accent);
   cursor: pointer;
   align-self: flex-start;
 }
@@ -419,13 +423,98 @@
 .presetCancelBtn {
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: var(--rt-radius-sm);
+  border: 1px solid var(--rt-border-strong);
   background: transparent;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--rt-text-secondary);
   cursor: pointer;
 }
 
 .presetCancelBtn:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--rt-fill-inset);
+}
+
+/* ---------- 键盘焦点环 ----------
+ * 本模块此前 :focus / :focus-visible 均为 0 条（9 button + 5 select + 8 input）。
+ * 开关的可见焦点特别重要：.switchInput 是 opacity:0 的 checkbox，
+ * 没有焦点环时键盘用户会看到一个"看不见的 tab 停靠点"。 */
+.presetAddBtn:focus-visible,
+.presetCancelBtn:focus-visible,
+.presetBtn:focus-visible,
+.feedbackClearBtn:focus-visible,
+.saveButton:focus-visible,
+.panelToggleOn:focus-visible,
+.panelToggleOff:focus-visible {
+  outline: var(--rt-focus-ring);
+  outline-offset: var(--rt-focus-offset);
+}
+
+.input:focus-visible,
+.select:focus-visible,
+.presetSelect:focus-visible {
+  outline: none;
+  border-color: var(--rt-brand);
+}
+
+/* 隐藏 checkbox 获得键盘焦点时，把焦点环画在它的视觉替身（开关轨道）上。 */
+.switchInput:focus-visible + .switchTrack {
+  outline: var(--rt-focus-ring);
+  outline-offset: 2px;
+}
+/* ---------- 动效降级（prefers-reduced-motion） ----------
+ * 只为**本模块内真的带 animation/transition 的选择器**生成规则，
+ * 不用通配 + !important —— 那条写法会连带影响宿主其它 UI 与模块内无关元素。
+ * 宿主先例：primitives 的 StateDot / SegmentedControl 各自只关自己的动效。
+ * 作用域收在 .root 内，绝不出本模块。 */
+@media (prefers-reduced-motion: reduce) {
+  .root .switchTrack,
+  .root .switchTrack::after,
+  .root .panelToggleOff {
+    transition: none;
+  }
+}
+
+/* ---------- 预设头像选择器 ---------- */
+
+/* 24 个字形平铺：换行网格而不是横向滚动 —— 横向滚动会把后面的选项藏起来，
+   而头像恰恰是"扫一眼挑一个"的操作。 */
+.avatarPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 320px;
+}
+
+.avatarOption {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rt-border-soft);
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--rt-surface-raised);
+  cursor: pointer;
+}
+
+.avatarOption:hover {
+  border-color: var(--rt-border-strong);
+}
+
+.avatarOptionActive {
+  border-color: var(--rt-brand);
+  box-shadow: 0 0 0 2px var(--rt-brand-ring);
+}
+
+.avatarPreview {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--rt-text-primary);
+}
+
+.avatarOption:focus-visible {
+  outline: var(--rt-focus-ring);
+  outline-offset: 1px;
 }

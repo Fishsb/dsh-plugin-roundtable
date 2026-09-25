@@ -10,8 +10,8 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
+  border-top: 0.5px solid var(--rt-border-hairline);
+  background: var(--rt-surface-canvas);
 }
 
 /* ---------- 群头（QQ 群聊顶栏） ---------- */
@@ -21,8 +21,8 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-l2);
+  border-bottom: 0.5px solid var(--rt-border-hairline);
+  background: var(--rt-surface-raised);
   flex: none;
 }
 
@@ -30,14 +30,15 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
+  corner-shape: round;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
-  background: linear-gradient(135deg, #4d6bfe, #7a4dff);
+  color: var(--rt-on-accent);
+  background: var(--rt-brand-gradient);
   user-select: none;
 }
 
@@ -51,7 +52,7 @@
 .groupName {
   font-size: 14px;
   font-weight: 600;
-  color: var(--dsw-alias-text-l1);
+  color: var(--rt-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -59,7 +60,7 @@
 
 .groupSub {
   font-size: 11px;
-  color: var(--dsw-alias-text-l3);
+  color: var(--rt-text-secondary);
 }
 
 /* ---------- 消息流 ---------- */
@@ -81,12 +82,12 @@
   align-items: center;
   gap: 6px;
   text-align: center;
-  color: var(--dsw-alias-text-l3);
+  color: var(--rt-text-tertiary);
 }
 
 .emptyTitle {
   font-size: 13px;
-  color: var(--dsw-alias-text-l2);
+  color: var(--rt-text-secondary);
 }
 
 .emptyHint {
@@ -99,31 +100,31 @@
 .loadFailed {
   margin: 10px 0;
   font-size: 12px;
-  color: var(--dsw-alias-text-l3);
+  color: var(--rt-text-tertiary);
 }
 
 .loadFailed {
-  color: var(--dsw-alias-text-danger, #d9534f);
+  color: var(--rt-danger);
 }
 
 .truncated {
   align-self: center;
   margin-bottom: 10px;
   padding: 4px 10px;
-  border-radius: 10px;
+  border-radius: var(--rt-radius-sm);
   font-size: 11px;
-  color: var(--dsw-alias-text-l3);
-  background: var(--dsw-alias-bg-l2);
+  color: var(--rt-text-tertiary);
+  background: var(--rt-surface-raised);
 }
 
 .divider {
   align-self: center;
   margin: 12px 0 8px;
   padding: 2px 10px;
-  border-radius: 8px;
+  border-radius: var(--rt-radius-sm);
   font-size: 11px;
-  color: var(--dsw-alias-text-l3);
-  background: var(--dsw-alias-bg-l2);
+  color: var(--rt-text-tertiary);
+  background: var(--rt-surface-raised);
 }
 
 /* 一条消息 = 头像 + 气泡列（QQ 的左右分栏） */
@@ -170,21 +171,21 @@
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--dsw-alias-text-l3);
+  color: var(--rt-text-tertiary);
 }
 
 .senderName {
   font-weight: 600;
-  color: var(--dsw-alias-text-l2);
+  color: var(--rt-text-secondary);
 }
 
 .senderTag {
   padding: 0 5px;
-  border-radius: 6px;
+  border-radius: var(--rt-radius-sm);
   font-size: 10px;
   line-height: 15px;
-  color: #fff;
-  background: #4d6bfe;
+  color: var(--rt-on-mine);
+  background: var(--rt-bubble-mine);
 }
 
 .senderTime {
@@ -195,25 +196,25 @@
    靠不对称圆角把说话方向表达清楚。 */
 .bubble {
   padding: 7px 11px;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--rt-radius-sm);
+  font-size: var(--dsh-content-font-size, 13px);
   line-height: 1.62;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--dsw-alias-text-l1);
-  background: var(--dsw-alias-bg-l2);
+  color: var(--rt-text-primary);
+  background: var(--rt-bubble-incoming);
   border-top-left-radius: 3px;
 }
 
 .bubbleMine {
-  background: #4d6bfe;
-  color: #fff;
+  background: var(--rt-bubble-mine);
+  color: var(--rt-on-mine);
   border-top-left-radius: 10px;
   border-top-right-radius: 3px;
 }
 
 .bubbleCaptain {
-  background: var(--dsw-alias-bg-l3);
+  background: var(--rt-bubble-captain);
   border-top-left-radius: 10px;
   border-top-right-radius: 10px;
 }
@@ -222,7 +223,7 @@
   display: flex;
   gap: 6px;
   font-size: 10px;
-  color: var(--dsw-alias-text-l3);
+  color: var(--rt-text-secondary);
 }
 
 /* 发言者头像：品牌 logo 或缩写 */
@@ -230,6 +231,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
+  corner-shape: round;
   flex: none;
   display: flex;
   align-items: center;
@@ -237,7 +239,7 @@
   overflow: hidden;
   font-size: 10px;
   font-weight: 600;
-  color: #fff;
+  color: var(--rt-on-accent);
   user-select: none;
 }
 
@@ -257,7 +259,7 @@
 }
 
 .avatarLight .avatarAbbr {
-  color: #16181d;
+  color: var(--rt-on-light);
 }
 
 /* ---------- 输入条 ---------- */
@@ -268,8 +270,8 @@
   align-items: flex-end;
   gap: 8px;
   padding: 10px 14px;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-l2);
+  border-top: 0.5px solid var(--rt-border-hairline);
+  background: var(--rt-surface-raised);
 }
 
 .input {
@@ -279,18 +281,18 @@
   resize: none;
   box-sizing: border-box;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--rt-radius-sm);
   font: inherit;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--dsw-alias-text-l1);
-  background: var(--dsw-alias-bg-base);
-  border: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--rt-text-primary);
+  background: var(--rt-surface-canvas);
+  border: 0.5px solid var(--rt-border-hairline);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+  border-color: var(--rt-brand);
 }
 
 .input:disabled {
@@ -303,19 +305,139 @@
   height: 34px;
   padding: 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--rt-radius-sm);
   font-size: 13px;
   font-weight: 500;
-  color: #fff;
-  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  color: var(--rt-on-accent);
+  background: var(--rt-brand);
   cursor: pointer;
 }
 
+ .sendButton {
+  transition: background var(--rt-dur-fast) ease;
+}
+
 .sendButton:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: var(--rt-brand-hover);
 }
 
 .sendButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ---------- 键盘焦点环（本模块此前只有 .input:focus，无 focus-visible） ---------- */
+.sendButton:focus-visible {
+  outline: var(--rt-focus-ring);
+  outline-offset: var(--rt-focus-offset);
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--rt-brand);
+}
+
+/* ---------- 日期分隔（真实群聊习惯：今天/昨天/更早） ---------- */
+
+/**
+ * 日期分隔做成**贯穿横线 + 居中标签**：真实群聊都这么做，因为它表达的是
+ * "时间轴在这里断了一截"，而一枚居中小胶囊读起来像"又一条消息"。
+ * 轮次分隔（.divider）保持胶囊形 —— 它是会议语义的分段，不是时间分隔，
+ * 两者刻意不同形，避免用户把"第 2 轮"误读成时间点。
+ */
+.dayDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+  flex: none;
+}
+
+.dayDivider::before,
+.dayDivider::after {
+  content: '';
+  flex: 1;
+  height: 0;
+  border-top: 0.5px solid var(--rt-border-hairline);
+}
+
+.dayLabel {
+  flex: none;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rt-text-secondary);
+}
+
+/* ---------- 发言类别徽标（检索 / 代思考） ---------- */
+
+/**
+ * 与昵称同行、字号更小、无底色描边只留字形 —— 它是**限定词**（"这条是检索"），
+ * 不是并列的身份标签。做成胶囊会与昵称争夺同一层视觉权重，读者会把
+ * "检索"读成另一个人的名字。
+ */
+.kindBadge {
+  flex: none;
+  padding: 0 5px;
+  border: 0.5px solid var(--rt-border-strong);
+  border-radius: var(--rt-radius-sm);
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--rt-text-secondary);
+}
+
+/* ---------- 工作项标记（旁注行内） ---------- */
+
+.workItemTag {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 动效降级（prefers-reduced-motion） ----------
+ * 只为**本模块内真的带 transition/animation 的选择器**生成规则。
+ * 不用通配 + !important —— 那条写法会连带影响宿主其它 UI 与模块内无关元素
+ * （宿主先例：primitives 的 StateDot / SegmentedControl 各自只关自己的动效）。 */
+@media (prefers-reduced-motion: reduce) {
+  .sendButton {
+    transition: none;
+  }
+}
+
+/* ---------- 长发言折叠（不裁正文，只做信息分级） ---------- */
+
+/**
+ * 折叠用 **line-clamp** 而不是固定 max-height：气泡宽度随窗口变化，写死像素
+ * 高度会在宽窗口下留一大片空白、窄窗口下仍显不完。clamp 跟随内容与宽度。
+ * 折起时底部渐隐 —— 直接切断会让最后一行看着像句子没写完。
+ */
+.bubbleClamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 12;
+  line-clamp: 12;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.expandToggle {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--rt-text-secondary);
+  cursor: pointer;
+}
+
+.expandToggle:hover {
+  color: var(--rt-brand);
+}
+
+/* 预设头像字形：无品牌底、随主题着色（emoji 自带色，符号随 currentColor）。
+   与品牌 logo 的差别是有意的：品牌块表达“这家厂商”，字形表达“这个职能”。 */
+.avatarGlyph {
+  background: var(--rt-fill-inset);
+  color: var(--rt-text-primary);
+  font-size: 15px;
 }

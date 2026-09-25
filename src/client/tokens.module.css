@@ -1,0 +1,144 @@
+/* 设计令牌层 —— 本插件**所有色值的唯一出处**。
+ *
+ * ## 为什么需要这一层（而不是到处直接写 var(--dsw-*)）
+ *
+ * 宿主 `--dsw-alias-*` 是**语义**令牌（label-primary / bg-layer-N / border-lN /
+ * state-*-primary），但插件需要的是**角色**（画布底、卡片底、输入框底、危险色、
+ * 品牌色、连线色…）。在 200+ 处声明里直接挑语义令牌，等于把"哪个语义对应哪个角色"
+ * 这个判断重复 200 遍——第 201 处必然挑错，而且改一次配色要动全文件。
+ *
+ * 这一层把那 200 遍判断收敛成 30 条映射：右边永远是宿主的语义令牌或由它派生的
+ * color-mix，左边是本插件自己的角色名。改配色只改这里。
+ *
+ * ## 为什么不直接复用宿主的 --dsw-* 名字
+ *
+ * 宿主自己也有 `--dsh-*`（boot/scrollbar）与 `--dsw-*`（design platform）两级，
+ * 插件再借第三级会与"谁是权威"混淆。`--rt-` 前缀在本仓库内唯一，谁也不覆盖。
+ *
+ * ## 为什么 :root 而不是每个模块各写一份
+ *
+ * 三个 CSS Module 是同一次 factory 执行里一起注入的，令牌只应定义一次——
+ * 每个模块各带一份拷贝，改一处就漏一处。本文件在 `client/index.ts` 处按副作用导入。
+ *
+ * ## 关于 --rt-on-accent
+ *
+ * 饱和强调底色（品牌蓝、危险红、成功绿）上的文字在明暗两套主题下都必须是浅色；
+ * 宿主对此有两种做法（primary 按钮用 label-primary-foreground、solid tag 用
+ * bg-layer-3），但两者都会随主题翻转，用在饱和色块上会在暗色主题里变成深字压深底。
+ * 因此这里显式钉一个不随主题走的常量，并注明它是**唯一的字面色值**。
+ *
+ * @module dsh-plugin-roundtable/client/tokens
+ */
+
+:root {
+  /* ---------- 表面 ---------- */
+  --rt-surface-canvas: var(--dsw-alias-bg-module-platform);
+  --rt-surface-raised: var(--dsw-alias-bg-layer-1);
+  --rt-surface-subtle: var(--dsw-alias-bg-layer-2);
+  --rt-surface-soft: var(--dsw-alias-bg-layer-3);
+  /* 与表面同色但语义为"反相块"（主持人节点）：明色主题深块、暗色主题浅块，
+     文字用配对的 foreground —— 与宿主 Tag 的 solid 音调同一手法。 */
+  --rt-surface-contrast: var(--dsw-alias-label-primary);
+  --rt-surface-overlay: var(--dsw-alias-bg-mask-1);
+  /* 内嵌下沉面（引用块、序号块、只读条） */
+  --rt-fill-inset: var(--dsw-alias-bg-module-platform);
+  --rt-fill-hover: var(--dsw-alias-interactive-bg-hover);
+  --rt-fill-hover-danger: var(--dsw-alias-interactive-bg-hover-danger);
+  /* 宿主 Switch 的轨道色 */
+  --rt-track: var(--dsw-alias-border-l3);
+
+
+  /* ---------- 群聊（ChatView）专用角色令牌 ----------
+   * 全部由宿主语义令牌派生，且**逐个核验过存在**（避免重蹈死令牌坑）。 */
+
+  /* 他人气泡底：比页面底略抬一级，与宿主 markdown-tag 同色阶 */
+  /* 与**宿主聊天界面**同一底色（dsh-client-ui-chat 的 .Sixlwa_bubble 走它）。
+     原先用 markdown-tag，明色下与画布只差 4/255 —— 气泡边界几乎看不见。 */
+  --rt-bubble-incoming: var(--dsw-specific-bubble);
+  /* 主持人气泡底：再抬一级以示"信息枢纽"（宿主多选底色同阶） */
+  /* 主持人气泡：抬到卡片层。原 bg-multi-select 在**明色下等于画布**（都是 #f5f6f7），
+     气泡会整块隐形；layer-1 在明暗两套下都与画布、与他人气泡可分辨。 */
+  --rt-bubble-captain: var(--rt-surface-raised);
+  /* 自己发出的气泡：品牌实底 + 反白字（与宿主主按钮同构） */
+  /* 自己发出的气泡。**不能直接用 brand**：暗色主题下 brand 是浅蓝 #7aaaff，
+     配白字只有 2.33:1（远低于 AA 4.5:1）。向正文色压 12% 后：明 5.09:1 / 暗 9.03:1，
+     两套主题都达标，且仍是品牌蓝。 */
+  --rt-bubble-mine: color-mix(in srgb, var(--rt-brand) 88%, var(--dsw-alias-label-primary));
+  /* 系统旁注底（日期分隔、轮次分隔、截断提示） */
+  --rt-bubble-system: var(--dsw-alias-bg-module-platform);
+
+  /* ---------- 描边 ---------- */
+  --rt-border-hairline: var(--dsw-alias-border-l2);
+  --rt-border-soft: var(--dsw-alias-border-l3);
+  --rt-border-strong: var(--dsw-alias-border-l4);
+  /* 悬停态描边：必须比 --rt-border-strong 更实，否则 hover 零视觉变化。
+     取宿主 interactive 悬停色差台阶中的下一级，两主题都成立。 */
+  --rt-border-hover: color-mix(in srgb, var(--dsw-alias-label-primary) 38%, transparent);
+
+  /* ---------- 文字 ---------- */
+  --rt-text-primary: var(--dsw-alias-label-primary);
+  --rt-text-secondary: var(--dsw-alias-label-secondary);
+  --rt-text-tertiary: var(--dsw-alias-label-tertiary);
+  --rt-text-caption: var(--dsw-alias-label-caption);
+  --rt-text-on-contrast: var(--dsw-alias-label-primary-foreground);
+  /* 饱和强调底色上的文字：两套主题下都取浅色，故**不随主题翻转**。 */
+  --rt-on-accent: #fff;
+  /* 品牌实底上的文字。走宿主配对（明色白 / 暗色近黑），故**随主题翻转** ——
+     这正是它与 --rt-on-accent 的分工：后者用于"底色恒浅"的固定品牌块。 */
+  --rt-on-mine: var(--dsw-alias-label-primary-foreground);
+  /* 固定在浅色品牌底（头像/渐变徽标）上的文字 —— 那个底在两套主题下都是浅色，
+     所以文字也必须固定为深色，不能跟着主题翻转。 */
+  --rt-on-light: #16181d;
+
+  /* ---------- 品牌 ---------- */
+  /* 宿主把 deepseek-500/450 用作"业务/信息"强调色，是本设计系统里唯一的蓝。 */
+  --rt-brand: var(--dsw-alias-state-business-primary);
+  --rt-brand-hover: var(--dsw-alias-button-info-hover);
+  --rt-brand-gradient: linear-gradient(135deg, var(--dsw-alias-state-business-primary), var(--dsw-alias-button-info-hover));
+  --rt-brand-tint: color-mix(in srgb, var(--rt-brand) 10%, transparent);
+  --rt-brand-tint-strong: color-mix(in srgb, var(--rt-brand) 16%, transparent);
+  --rt-brand-border: color-mix(in srgb, var(--rt-brand) 40%, transparent);
+  --rt-brand-ring: color-mix(in srgb, var(--rt-brand) 18%, transparent);
+  --rt-brand-ring-strong: color-mix(in srgb, var(--rt-brand) 30%, transparent);
+  --rt-brand-glow: color-mix(in srgb, var(--rt-brand) 70%, transparent);
+
+  /* ---------- 状态 ---------- */
+  --rt-danger: var(--dsw-alias-state-error-primary);
+  --rt-danger-strong: var(--dsw-alias-state-error-secondary);
+  --rt-danger-tint: color-mix(in srgb, var(--rt-danger) 10%, transparent);
+  --rt-danger-tint-strong: color-mix(in srgb, var(--rt-danger) 16%, transparent);
+  --rt-danger-border: color-mix(in srgb, var(--rt-danger) 45%, transparent);
+  --rt-success: var(--dsw-alias-state-success-primary);
+  --rt-success-tint: color-mix(in srgb, var(--rt-success) 12%, transparent);
+  --rt-success-border: color-mix(in srgb, var(--rt-success) 45%, transparent);
+  --rt-warn: var(--dsw-alias-state-warn-primary);
+  --rt-warn-label: var(--dsw-alias-state-warn-label);
+  /* ⚠ 警示**文字**必须与警示**底色**成对比：宿主自带的 state-warn-label 压在
+     同色 14% 淡底上只有约 2.4:1（明色）/ 4.3:1（暗色），两套主题都读不清，
+     而"待办/待移除"是用户必须看见的状态。故向该主题的正文色混 45% —— 明色下
+     变深、暗色下变浅，自动跟随，实测约 5.7:1 / 6.9:1。 */
+  --rt-warn-text: color-mix(in srgb, var(--dsw-alias-state-warn-label) 55%, var(--dsw-alias-label-primary));
+  --rt-warn-tint: color-mix(in srgb, var(--rt-warn) 14%, transparent);
+  --rt-warn-tint-strong: color-mix(in srgb, var(--rt-warn) 25%, transparent);
+  --rt-warn-border: color-mix(in srgb, var(--rt-warn) 45%, transparent);
+  --rt-info-tint: color-mix(in srgb, var(--rt-brand) 8%, transparent);
+  --rt-idle: var(--dsw-alias-state-idle-primary);
+
+  /* ---------- 连线（SVG 描边/填充） ---------- */
+  --rt-line: var(--dsw-alias-label-tertiary);
+  --rt-line-soft: var(--dsw-alias-label-caption);
+
+  /* ---------- 高度 ---------- */
+  --rt-shadow-card: var(--dsw-elevation-soft);
+  --rt-shadow-pop: var(--dsw-elevation-prominent);
+  --rt-ring-soft: color-mix(in srgb, var(--dsw-alias-label-primary-foreground) 22%, transparent);
+
+  /* ---------- 几何 / 动效 / 焦点（宿主规范） ---------- */
+  --rt-radius-sm: 8px;
+  --rt-radius-md: 12px;
+  --rt-radius-pill: 999px;
+  --rt-dur-fast: 120ms;
+  --rt-dur-slow: 160ms;
+  --rt-focus-ring: 2px solid var(--dsw-alias-brand-primary);
+  --rt-focus-offset: 1px;
+}
