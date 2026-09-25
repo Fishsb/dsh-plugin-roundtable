@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-roundtable",
-  "version": "0.2.58",
+  "version": "0.2.61",
   "private": true,
   "description": "RoundTable for DeepSeek Harness: turn one session into a visualized round-table meeting — expert nodes on a ring, directed edges, an aggregation gateway, proxy thinking for black-box worker models, and a live topology tab in the web GUI. Includes 针锋相对 (adversarial review): red-team experts attack a settled plan and you endorse real flaws.",
   "author": {

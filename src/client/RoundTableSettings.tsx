@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { RpcCaller, RoundTablePrefs, WireFeedbackEntry, WireModelCatalog, WireProviderOption, WireRolePreset } from './wire.ts'
 import type { RoundTableKey } from './locales.ts'
+import { PRESET_AVATARS, AVATAR_MAX, presetAvatarGlyph, presetFallbackGlyph } from './preset-avatars.ts'
 import styles from './RoundTableSettings.module.css'
 
 export interface RoundTableSettingsInjected {
@@ -41,6 +42,10 @@ const ROLE_PRESET_LIMIT = 50
 /** 编辑/新建共用的草稿形状（五个字段一次写全：名称、角色、路由、档位）。 */
 interface PresetDraft {
   name: string
+  /** 职能名（展示用短名）：群聊/拓扑上的人名。 */
+  title: string
+  /** 头像字形（内置集里的一个）。 */
+  avatar: string
   role: string
   provider: string
   model: string
@@ -79,6 +84,43 @@ function PresetForm(props: {
           value={draft.name}
           placeholder={t('settingsPresetNamePlaceholder')}
           onChange={(event) => onDraft({ ...draft, name: event.target.value })}
+        />
+      </div>
+      {/* 头像：内置字形集，一键选中。做成**可视选择器**而不是文本框 ——
+          头像的价值在于「一眼认出是谁」，让用户手打 emoji 既难查又易漏。 */}
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetAvatar')}</label>
+        <div className={styles.avatarPicker}>
+          <button
+            type="button"
+            className={[styles.avatarOption, draft.avatar === '' ? styles.avatarOptionActive : ''].filter(Boolean).join(' ')}
+            title={t('settingsPresetAvatarNone')}
+            onClick={() => onDraft({ ...draft, avatar: '' })}
+          >
+            <span className={styles.avatarPreview}>{presetFallbackGlyph(draft.title, draft.name)}</span>
+          </button>
+          {PRESET_AVATARS.map((glyph) => (
+            <button
+              key={glyph}
+              type="button"
+              className={[styles.avatarOption, draft.avatar === glyph ? styles.avatarOptionActive : ''].filter(Boolean).join(' ')}
+              title={glyph}
+              onClick={() => onDraft({ ...draft, avatar: glyph })}
+            >
+              <span className={styles.avatarPreview}>{glyph}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* 职能名：群聊/拓扑上的人名（与 name 的分工见 types.ts 注释）。 */}
+      <div className={styles.presetFormRow}>
+        <label className={styles.label}>{t('settingsPresetTitle')}</label>
+        <input
+          className={styles.input}
+          value={draft.title}
+          placeholder={t('settingsPresetTitlePlaceholder')}
+          maxLength={16}
+          onChange={(event) => onDraft({ ...draft, title: event.target.value })}
         />
       </div>
       <div className={styles.presetFormRow}>
@@ -160,22 +202,61 @@ function PresetForm(props: {
   )
 }
 
+
+/**
+ * 把一次 RPC 失败收敛成**可读的原因**。
+ *
+ * 为什么必须有它：此前三处写入口都只置一个布尔值，把服务端 `fail()` 带回的
+ * 具体 message 与网络异常原文**全部丢掉**。后果是无论失败原因是鉴权 401、
+ * 字段被净化拒绝、还是磁盘不可写，用户看到的永远是同一句「保存设置失败」——
+ * **失败不可归因、也不可观测**。
+ *
+ * 实测代价（2026-09-25 排查「设置保存失败」）：服务端其实一直带着可读原因回包，
+ * 但界面把它盖掉了，只能靠后侧探针把每个假设逐个排除，多花了一整轮。
+ *
+ * 收敛规则：服务端 message 优先 → 网络异常 `Error.message` → 固定兜底。
+ * **不留白** —— 留白会被读成"没失败"。
+ */
+function rpcFailureText(
+  result: { ok: false; error: { code: string; message: string } } | undefined,
+  error?: unknown,
+): string {
+  const fromServer = result?.error?.message
+  if (typeof fromServer === 'string' && fromServer !== '') return fromServer
+  if (error instanceof Error && error.message !== '') return error.message
+  if (error !== undefined && error !== null) return String(error)
+  return 'unknown failure (no message from server)'
+}
+
 export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element {
   const { rpc, t } = props
   const [prefs, setPrefs] = useState<RoundTablePrefs | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
+  /**
+   * 失败**原文**（服务端 message 或网络异常）。
+   *
+   * 为什么必须与布尔位并存：只置 `saveFailed = true` 会让「鉴权 401」
+   * 「字段被拒」「磁盘不可写」在界面上完全同形——用户与排查者都拿不到
+   * 归因线索（2026-09-25 实测代价见 `rpcFailureText` 的注释）。
+   * 空串 = 没有可读原因（此时界面只显示标题句，不显示空的"原因"行）。
+   */
+  const [saveFailedReason, setSaveFailedReason] = useState('')
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<WireFeedbackEntry[]>([])
   const [feedbackLoadFailed, setFeedbackLoadFailed] = useState(false)
   const [feedbackCleared, setFeedbackCleared] = useState(false)
+  /** 清空反馈失败的**原文**（同理由：`feedbackLoadFailed` 只说"失败"，不说为什么）。 */
+  const [feedbackFailReason, setFeedbackFailReason] = useState('')
   // B3 角色预设：列表在 prefs 里，表单与"编辑中"是纯本地状态。
   const [providers, setProviders] = useState<WireProviderOption[]>([])
   const [presetFormOpen, setPresetFormOpen] = useState(false)
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null)
-  const [presetDraft, setPresetDraft] = useState<{ name: string; role: string; provider: string; model: string; reasoningEffort: string }>({
+  const [presetDraft, setPresetDraft] = useState<{ name: string; title: string; avatar: string; role: string; provider: string; model: string; reasoningEffort: string }>({
     name: '',
+    title: '',
+    avatar: '',
     role: '',
     provider: '',
     model: '',
@@ -184,6 +265,8 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
   const [presetNotice, setPresetNotice] = useState<'saved' | 'failed' | 'invalid' | 'limit' | null>(null)
   /** 条目级保存回执（按预设 id）：页面级一句话说不清"改的是哪条"。 */
   const [presetSavedId, setPresetSavedId] = useState<string | null>(null)
+  /** 预设写入失败的**原文**（同 `saveFailedReason` 的理由：只置 'failed' 无法归因）。 */
+  const [presetFailReason, setPresetFailReason] = useState('')
   /** 模型目录读取失败（provider 粒度）；非空即在页顶显式提示，不与"无模型"同形。 */
   const [catalogFailures, setCatalogFailures] = useState<{ id: string; name: string; message: string }[]>([])
   /** 编辑表单的挂载点：行内编辑（挂在条目内）与新建（挂在列表下方）共用一把 ref。 */
@@ -268,6 +351,7 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     if (prefs === null || saving) return
     setSaving(true)
     setSaveFailed(false)
+    setSaveFailedReason('')
     void rpc<RoundTablePrefs>('roundtable/prefs.set', {
       defaultMode: prefs.defaultMode,
       maxRounds: prefs.maxRounds,
@@ -286,11 +370,13 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
           setSaved(true)
         } else {
           setSaveFailed(true)
+          setSaveFailedReason(rpcFailureText(result))
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         setSaving(false)
         setSaveFailed(true)
+        setSaveFailedReason(rpcFailureText(undefined, error))
       })
   }
 
@@ -300,11 +386,16 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
         if (result.ok) {
           setFeedback([])
           setFeedbackCleared(true)
+          setFeedbackFailReason('')
         } else {
           setFeedbackLoadFailed(true)
+          setFeedbackFailReason(rpcFailureText(result))
         }
       })
-      .catch(() => setFeedbackLoadFailed(true))
+      .catch((error: unknown) => {
+        setFeedbackLoadFailed(true)
+        setFeedbackFailReason(rpcFailureText(undefined, error))
+      })
   }
 
   /* ---------------- B3：角色预设（改动立即落库，不必等底部保存） ---------------- */
@@ -331,13 +422,18 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
         if (result.ok) {
           setPrefs(result.value)
           setPresetNotice('saved')
+          setPresetFailReason('')
           // 条目级回执（M1）：让用户看见"改的是哪一条"，而不是页脚一句话。
           setPresetSavedId(savedId ?? null)
         } else {
           setPresetNotice('failed')
+          setPresetFailReason(rpcFailureText(result))
         }
       })
-      .catch(() => setPresetNotice('failed'))
+      .catch((error: unknown) => {
+        setPresetNotice('failed')
+        setPresetFailReason(rpcFailureText(undefined, error))
+      })
   }
 
   /**
@@ -351,11 +447,14 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     setPresetNotice(null)
     if (preset === undefined) {
       setEditingPresetId(null)
-      setPresetDraft({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
+      setPresetDraft({ name: '', title: '', avatar: '', role: '', provider: '', model: '', reasoningEffort: '' })
     } else {
       setEditingPresetId(preset.id)
       setPresetDraft({
         name: preset.name,
+        // 回填展示字段：漏了它们，用户"编辑一下再保存"就会把已设的头像/职能名抹掉。
+        title: preset.title ?? '',
+        avatar: preset.avatar ?? '',
         role: preset.role,
         provider: preset.provider ?? '',
         model: preset.model ?? '',
@@ -368,7 +467,7 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
   const closePresetForm = (): void => {
     setPresetFormOpen(false)
     setEditingPresetId(null)
-    setPresetDraft({ name: '', role: '', provider: '', model: '', reasoningEffort: '' })
+    setPresetDraft({ name: '', title: '', avatar: '', role: '', provider: '', model: '', reasoningEffort: '' })
   }
 
   const submitPreset = (): void => {
@@ -387,9 +486,14 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
     // provider/model 必须成对：只有两者都选好才算"指定路由"，否则继承主持人。
     const routed = presetDraft.provider !== '' && presetDraft.model !== ''
     const effort = presetDraft.reasoningEffort.trim()
+    // 职能名与头像：与 host 净化同规 —— **空则省略**，不写空串。
+    const title = presetDraft.title.trim()
+    const avatar = presetDraft.avatar.trim().slice(0, AVATAR_MAX)
     const entry: WireRolePreset = {
       id: editingPresetId ?? newPresetId(),
       name,
+      ...(title === '' ? {} : { title }),
+      ...(avatar === '' ? {} : { avatar }),
       role,
       ...(routed ? { provider: presetDraft.provider, model: presetDraft.model } : {}),
       ...(effort === '' ? {} : { reasoningEffort: effort }),
@@ -652,7 +756,12 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
           </button>
         ) : null}
         {presetNotice === 'saved' ? <span className={styles.saved}>{t('settingsPresetUpdated')}</span> : null}
-        {presetNotice === 'failed' ? <span className={styles.failed}>{t('settingsSaveFailed')}</span> : null}
+        {presetNotice === 'failed' ? (
+          <span className={styles.failed} title={presetFailReason}>
+            {t('settingsSaveFailed')}
+            {presetFailReason === '' ? null : `: ${t('settingsSaveFailedDetail')} ${presetFailReason}`}
+          </span>
+        ) : null}
         {presetNotice === 'invalid' ? <span className={styles.failed}>{t('settingsPresetInvalid')}</span> : null}
         {presetNotice === 'limit' ? (
           <span className={styles.failed}>{t('settingsPresetLimit').replace('{max}', String(ROLE_PRESET_LIMIT))}</span>
@@ -711,7 +820,10 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
       <div className={styles.field}>
         <label className={styles.label}>{t('feedbackListTitle')}</label>
         {feedbackLoadFailed ? (
-          <div className={styles.note}>{t('feedbackLoadFailed')}</div>
+          <div className={styles.note} title={feedbackFailReason}>
+            {t('feedbackLoadFailed')}
+            {feedbackFailReason === '' ? null : `: ${t('settingsSaveFailedDetail')} ${feedbackFailReason}`}
+          </div>
         ) : feedback.length === 0 ? (
           <div className={styles.note}>{t('feedbackListEmpty')}</div>
         ) : (
@@ -744,7 +856,12 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
           {saving ? '…' : t('settingsSave')}
         </button>
         {saved ? <span className={styles.saved}>{t('settingsSaved')}</span> : null}
-        {saveFailed ? <span className={styles.failed}>{t('settingsSaveFailed')}</span> : null}
+        {saveFailed ? (
+          <span className={styles.failed} title={saveFailedReason}>
+            {t('settingsSaveFailed')}
+            {saveFailedReason === '' ? null : `: ${t('settingsSaveFailedDetail')} ${saveFailedReason}`}
+          </span>
+        ) : null}
       </div>
     </div>
   )

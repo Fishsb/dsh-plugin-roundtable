@@ -20,6 +20,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { RoundTableView, type RoundTableViewInjected } from './RoundTableView.tsx'
 import { RoundTableSettings, type RoundTableSettingsInjected } from './RoundTableSettings.tsx'
+// 设计令牌层：定义 --rt-* 角色令牌（:root）——必须在任何组件 CSS 之前生效。
+import './tokens.module.css'
 import { en, NS, zh } from './locales.ts'
 import { callRpc, type RpcCaller, type RpcEnvelope } from './wire.ts'
 

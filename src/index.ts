@@ -120,6 +120,10 @@ export const Config: z<Config> = z.object({
     model: z.string(),
     /** 可选思考强度（宿主档位 id）；声明为可空字符串，由 rpc.ts 净化。 */
     reasoningEffort: z.string().default(''),
+    /** 展示用职能名；空 = 回落 name。由 rpc.ts 净化。 */
+    title: z.string().default(''),
+    /** 展示用头像字形 id；空 = 按 provider 品牌回落。由 rpc.ts 净化。 */
+    avatar: z.string().default(''),
   })).default([]).volatile(),
   /** B3+：缺省角色预设（**单一缺省值**，沿用宿主 `agent-presets.default` 语义）。
    *  专家管理面板打开时用它预填；空 = 无缺省。指向已删预设时由 rpc.ts 净化清空。 */

@@ -297,6 +297,19 @@ export interface RolePreset {
   name: string
   /** 角色说明，最终写进专家节点的 role。 */
   role: string
+  /** 职能名（展示用短名，如「安全」「架构」）。
+   *
+   *  与 `name` 的分工：`name` 是用户给这条预设的**标识**（列表里找它用），
+   *  `title` 是**贴在人身上的职能标签**（群聊/拓扑里那个小徽章）。
+   *  两者常常相同，但不同时也有意义（例：name「老王的审查岗」/ title「安全」）。
+   *  空 = 回落 `name`。 */
+  title?: string
+  /** 头像：内置字形 id（见 client avatars 集）或单个 emoji。
+   *
+   *  为什么存**字形 id 而非图片 URL**：① 群聊/拓扑是高频重绘面，图片要处理
+   *  加载态与失败态；② 外链图片在离线/内网环境下会碎；③ 数据结构上它只是
+   *  一个短串，进快照几乎不增体积。空 = 按 provider 品牌回落（现状行为）。 */
+  avatar?: string
   /** 可选 LLM provider 路由；必须与 model 同时给出才生效。空 = 继承主持人。 */
   provider?: string
   /** 可选模型名；空 = 继承主持人。 */

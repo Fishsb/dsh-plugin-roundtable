@@ -122,6 +122,10 @@ export interface MeetingSnapshot {
     model: string
     /** 该席的思考强度（宿主档位 id；空 = 继承主持人）。缺失 = 旧快照。 */
     reasoningEffort?: string
+    /** 该席由哪条用户预设拉起（空 = 临时写的角色）。
+     *  用途：UI 拿它反查预设的**头像与职能名** —— 会议节点本身只有 role 文本，
+     *  没有预设的展示信息。缺失 = 旧快照。 */
+    presetId?: string
     status: string
     activity: string
   }[]
@@ -372,6 +376,7 @@ export async function collectMeetingSnapshots(
             provider: node.provider ?? '',
             model: node.model ?? '',
             ...(node.reasoningEffort === undefined || node.reasoningEffort === '' ? {} : { reasoningEffort: node.reasoningEffort }),
+            ...(node.presetId === undefined || node.presetId === '' ? {} : { presetId: node.presetId }),
             status: node.status,
             activity,
           }

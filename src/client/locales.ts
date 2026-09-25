@@ -53,6 +53,7 @@ export type RoundTableKey =
   | 'settingsSaved'
   | 'settingsLoadFailed'
   | 'settingsSaveFailed'
+  | 'settingsSaveFailedDetail'
   | 'fetchFailed'
   | 'meetingSelect'
   | 'agents'
@@ -207,6 +208,10 @@ export type RoundTableKey =
   | 'settingsPresetNamePlaceholder'
   | 'settingsPresetRole'
   | 'settingsPresetRolePlaceholder'
+  | 'settingsPresetAvatar'
+  | 'settingsPresetAvatarNone'
+  | 'settingsPresetTitle'
+  | 'settingsPresetTitlePlaceholder'
   | 'settingsPresetModel'
   | 'settingsPresetAdd'
   | 'settingsPresetEdit'
@@ -245,6 +250,27 @@ export type RoundTableKey =
   | 'chatRoundDivider'
   | 'chatToGateway'
   | 'chatToSeat'
+  | 'localeTag'
+  | 'sourcePrefix'
+  | 'edgeConnectFailed'
+  | 'edgeConnectFailedNoService'
+  | 'actionKbPath'
+  | 'actionRemoveNode'
+  | 'actionAddNode'
+  | 'captainLabel'
+  | 'aggregatorLabel'
+  | 'noModelSpecified'
+  | 'groupAvatarGlyph'
+  | 'manageDefaultModel'
+  | 'reviewViewpoint'
+  | 'chatKindRetrieval'
+  | 'chatKindProxyThinking'
+  | 'chatWorkItem'
+  | 'chatToday'
+  | 'chatYesterday'
+  | 'chatNewMessages'
+  | 'chatExpand'
+  | 'chatNewMessagesJump'
   | 'emptyInputPlaceholder'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -301,6 +327,7 @@ export const zh: Record<RoundTableKey, string> = {
   settingsSaved: '已保存',
   settingsLoadFailed: '读取设置失败',
   settingsSaveFailed: '保存设置失败',
+  settingsSaveFailedDetail: '原因',
   fetchFailed: '拉取会议状态失败，正在重试…',
   meetingSelect: '切换会议',
   agents: '专家',
@@ -455,6 +482,10 @@ export const zh: Record<RoundTableKey, string> = {
   settingsPresetName: '预设名称',
   settingsPresetNamePlaceholder: '例：安全审查',
   settingsPresetRole: '角色说明',
+  settingsPresetAvatar: '头像',
+  settingsPresetAvatarNone: '不用头像（用名称首字）',
+  settingsPresetTitle: '职能名',
+  settingsPresetTitlePlaceholder: '群聊里显示的人名，如：安全',
   settingsPresetRolePlaceholder: '例：从安全视角挑毛病，只报可利用的风险与复现路径',
   settingsPresetModel: '模型（可空 = 继承主持人）',
   settingsPresetAdd: '新建预设',
@@ -492,8 +523,32 @@ export const zh: Record<RoundTableKey, string> = {
   chatYou: '我',
   chatTruncated: '仅显示最近 {n} 条；更早的发言未载入。',
   chatRoundDivider: '第 {n} 轮',
+  chatKindRetrieval: '检索',
+  chatKindProxyThinking: '代思考',
+  chatWorkItem: '工作项 {id}',
+  chatToday: '今天',
+  chatYesterday: '昨天',
+  chatNewMessages: '有 {n} 条新消息',
+  chatExpand: '展开全文',
+  chatNewMessagesJump: '跳到最新',
   chatToGateway: '→ 汇聚网关',
   chatToSeat: '→ {to}',
+  /** 本语言的 BCP-47 标签。**给日期/时间格式化用** ——
+   *  那是唯一需要 locale 串（而非译文）的地方，而 t 是唯一随语言刷新的通道，
+   *  所以把标签本身做成一条词条：组件调 t('localeTag') 即可拿到当前语言标签。 */
+  localeTag: 'zh-CN',
+  sourcePrefix: '对话-{id}',
+  edgeConnectFailed: '连线失败',
+  edgeConnectFailedNoService: '连线失败：无法连接会议服务',
+  actionKbPath: '修改了知识库路径为 {path}',
+  actionRemoveNode: '删除了专家 {name}',
+  actionAddNode: '新增了专家 {name}{role}{route}',
+  captainLabel: 'DeepSeek · 主持',
+  aggregatorLabel: '汇聚网关',
+  noModelSpecified: '（未指定模型）',
+  groupAvatarGlyph: '桌',
+  manageDefaultModel: '使用主持人默认模型',
+  reviewViewpoint: '观点',
   emptyInputPlaceholder: '说一句话，主持人就来开局…（Enter 发送）',
 }
 
@@ -544,6 +599,7 @@ export const en: Record<RoundTableKey, string> = {
   settingsSaved: 'Saved',
   settingsLoadFailed: 'Failed to load preferences',
   settingsSaveFailed: 'Failed to save preferences',
+  settingsSaveFailedDetail: 'Reason',
   fetchFailed: 'Failed to fetch meeting state, retrying…',
   meetingSelect: 'Switch meeting',
   agents: 'Agents',
@@ -698,6 +754,10 @@ export const en: Record<RoundTableKey, string> = {
   settingsPresetName: 'Preset name',
   settingsPresetNamePlaceholder: 'e.g. Security review',
   settingsPresetRole: 'Role description',
+  settingsPresetAvatar: 'Avatar',
+  settingsPresetAvatarNone: 'No avatar (use the first letter)',
+  settingsPresetTitle: 'Display name',
+  settingsPresetTitlePlaceholder: 'Name shown in chat, e.g. Security',
   settingsPresetRolePlaceholder: 'e.g. Attack from a security angle: exploitable risks and repro paths only',
   settingsPresetModel: 'Model (empty = inherit the captain)',
   settingsPresetAdd: 'New preset',
@@ -735,7 +795,28 @@ export const en: Record<RoundTableKey, string> = {
   chatYou: 'Me',
   chatTruncated: 'Showing the latest {n}; earlier messages are not loaded.',
   chatRoundDivider: 'Round {n}',
+  chatKindRetrieval: 'retrieval',
+  chatKindProxyThinking: 'proxy thinking',
+  chatWorkItem: 'item {id}',
+  chatToday: 'Today',
+  chatYesterday: 'Yesterday',
+  chatNewMessages: '{n} new messages',
+  chatExpand: 'Show more',
+  chatNewMessagesJump: 'Jump to latest',
   chatToGateway: '→ gateway',
   chatToSeat: '→ {to}',
+  localeTag: 'en-US',
+  sourcePrefix: 'Chat {id}',
+  edgeConnectFailed: 'Could not connect',
+  edgeConnectFailedNoService: 'Could not connect: meeting service unreachable',
+  actionKbPath: 'Changed knowledge base path to {path}',
+  actionRemoveNode: 'Removed expert {name}',
+  actionAddNode: 'Added expert {name}{role}{route}',
+  captainLabel: 'DeepSeek · Captain',
+  aggregatorLabel: 'Aggregation gateway',
+  noModelSpecified: '(no model specified)',
+  groupAvatarGlyph: 'RT',
+  manageDefaultModel: 'uses the captain default model',
+  reviewViewpoint: 'Viewpoint',
   emptyInputPlaceholder: 'Say something and the captain will start… (Enter to send)',
 }

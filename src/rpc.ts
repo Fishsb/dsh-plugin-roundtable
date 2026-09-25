@@ -171,6 +171,10 @@ export function normalizeSayText(raw: unknown): { ok: true; text: string } | { o
 const ROLE_PRESET_ID_MAX = 64
 const ROLE_PRESET_NAME_MAX = 40
 const ROLE_PRESET_ROLE_MAX = 400
+/** 职能名上限（短标签，比 name 更短）。 */
+const ROLE_PRESET_TITLE_MAX = 16
+/** 头像字形 id 上限（单个 emoji 最多 2 个码元 + 变体选择符）。 */
+const ROLE_PRESET_AVATAR_MAX = 8
 /** 思考强度 id 上限（宿主档位 id 是短标识，如 `off`/`low`/`high`/`max`）。 */
 const ROLE_PRESET_EFFORT_MAX = 40
 
@@ -199,6 +203,8 @@ export function sanitizeRolePresets(value: unknown): RolePreset[] {
       provider?: unknown
       model?: unknown
       reasoningEffort?: unknown
+      title?: unknown
+      avatar?: unknown
     }
     const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, ROLE_PRESET_NAME_MAX) : ''
     const role = typeof raw.role === 'string' ? raw.role.trim().slice(0, ROLE_PRESET_ROLE_MAX) : ''
@@ -213,10 +219,25 @@ export function sanitizeRolePresets(value: unknown): RolePreset[] {
     const effort = typeof raw.reasoningEffort === 'string'
       ? raw.reasoningEffort.trim().slice(0, ROLE_PRESET_EFFORT_MAX)
       : ''
+    /**
+     * 职能名与头像都**可选且空值不落库**（与 effort 同规）。
+     *
+     * 为什么空则省略而不是写空串：老版本预设没有这两个字段，若净化后统一
+     * 补空串，每次保存都会把用户的 rolePresets 全部重写一遍（体积与 diff 都
+     * 无谓增大），也丢掉了"用户没设过"与"用户设成空"的区别。
+     */
+    const title = typeof raw.title === 'string'
+      ? raw.title.trim().slice(0, ROLE_PRESET_TITLE_MAX)
+      : ''
+    const avatar = typeof raw.avatar === 'string'
+      ? raw.avatar.trim().slice(0, ROLE_PRESET_AVATAR_MAX)
+      : ''
     out.push({
       id,
       name,
       role,
+      ...(title === '' ? {} : { title }),
+      ...(avatar === '' ? {} : { avatar }),
       ...(routed ? { provider, model } : {}),
       ...(effort === '' ? {} : { reasoningEffort: effort }),
     })

@@ -55,6 +55,8 @@ export interface WireNode {
   model: string
   /** 该席思考强度（宿主档位 id）；缺失 = 继承主持人或旧 host。 */
   reasoningEffort?: string
+  /** 该席由哪条用户预设拉起；空/缺失 = 临时角色。用于反查预设头像与职能名。 */
+  presetId?: string
   status: string
   activity: string
 }
@@ -352,6 +354,10 @@ export interface WireRolePreset {
   model?: string
   /** 可选思考强度（宿主档位 id，如 `high`）；空 = 继承主持人。 */
   reasoningEffort?: string
+  /** 展示用职能名；空/缺失 = 回落 `name`。 */
+  title?: string
+  /** 展示用头像字形 id；空/缺失 = 按 provider 品牌回落。 */
+  avatar?: string
 }
 
 /** `roundtable/mode.get` / `mode.set` 的响应：会话级讨论模式三态读数。 */

@@ -246,10 +246,17 @@ test('接线旁证：编辑表单打开后滚动用 block:nearest（start/center
 test('接线旁证：档位必须走结构化字段进 user-actions（不能只塞进 text）', () => {
   const manage = read('../src/client/RoundTableView.tsx')
   // 定位 submitAdd 的 append 调用（add-node），不是 applyPendingActions 的批量重放。
-  const at = manage.indexOf('新增了专家')
-  assert.ok(at > 0, '锚点不存在：submitAdd 的 text 模板')
+  // 锚点用**函数名**而不是那句中文文案：文案是可以被翻译/改写的（本轮把它
+  // 换成了 t('actionAddNode') 以支持中英切换），而守卫真正要验的是「结构化
+  // 档位字段有没有出现在 submitAdd 的 append 载荷里」。用文案当锚点会让任何
+  // 一次文案改动都变成假红 —— 那是守卫在测自己，不是在测行为。
+  const at = manage.indexOf('const submitAdd')
+  assert.ok(at > 0, '锚点不存在：submitAdd 函数')
   // 用固定窗口而不是 `})` 切片：text 模板里的 `${...}` 本身就含 `}`，会提前截断。
-  const window = manage.slice(at, at + 700)
+  // 窗口从 700 放宽到 1600：锚点改成函数名后窗口起点提前了，而 submitAdd 里
+  // 的校验分支本来就有几十行 —— 700 会把 append 调用切在窗口外（假红）。
+  // 断言本身未变：仍要求窗口内同时看到 append 调用与结构化 reasoningEffort。
+  const window = manage.slice(at, at + 1600)
   assert.match(window, /'roundtable\/user-actions\.append'/, '窗口内必须能看到 append 调用')
   assert.match(window, /reasoningEffort,/, 'add-node 的 payload 必须带结构化 reasoningEffort 字段')
 })

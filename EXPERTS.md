@@ -1,14 +1,14 @@
 # 圆桌专家团 · 作者实际在用的 28 席
 
-> 本文件由 `scripts/export-experts.mjs` 从本机 `settings.yaml` 的 `roundtable.rolePresets` 直出，**禁止手写**。
-> 条数 28｜角色定义长度 110–178 字｜默认路由 dshapi/deepseek-v4.1-flash
+> 本文件由 `scripts/export-experts.mjs` 从**当前实际命中的预设真源**（宿主 profile 的 `cordis.patch.yml`，或显式 `--settings` / `--patch`）直出，**禁止手写**。
+> 条数 28｜角色定义长度 110–178 字｜默认路由 dshapi/deepseek-v4.1-flash @high、dshapi/deepseek-v4.1-flash @low、dshapi/glm-5.3-flash @low
 
 这份名单是作者长期实际使用后收敛下来的结果，每席只做一件事，且互相不重叠。
 把它当作**起点**而不是标准答案：圆桌的价值在于你按自己的题目重组阵容。
 
 ## 怎么用
 
-直接把 [`experts.yaml`](./experts.yaml) 的内容粘进 `~/.dsh/settings.yaml` 的 `roundtable.rolePresets` 下，
+在 DSH「设置 → 圆桌会议 → 角色预设」里逐条建立，或把 [`experts.yaml`](./experts.yaml) 的内容粘进**当前 profile** 的 `cordis.patch.yml`（`id: roundtable` 那条的 `config.rolePresets`）下，
 重启 DSH，设置 → 圆桌会议 → 角色预设 即可看到全部名单；开会时主持人用 `roundtable_list_presets` 读取并按需上席。
 
 也可以只挑其中几席：把不需要的条目删掉即可，字段只有 `id` / `name` / `role` / `provider` / `model` 五项。
@@ -363,7 +363,9 @@
 | 条数 | 28 |
 | 分组覆盖 | 28/28（无遗漏、无重复归属） |
 | id 唯一 | 是 |
-| 路由种类 | 1（dshapi/deepseek-v4.1-flash） |
+| 路由种类 | 3（dshapi/deepseek-v4.1-flash @high、dshapi/deepseek-v4.1-flash @low、dshapi/glm-5.3-flash @low） |
 | 角色定义长度 | 110–178 字 |
 
-> 生成来源：本机 `settings.yaml`。复现方式：`node scripts/export-experts.mjs`；漂移检查：`node scripts/export-experts.mjs --check`。
+> 生成来源：当前实际命中的预设真源（见脚本运行时打印的「真源：」行）。复现方式：`node scripts/export-experts.mjs`。
+>
+> ⚠ `node scripts/export-experts.mjs --check` **只校验真源可解析且自洽**，**不与本文件比对** —— 要判本文件是否落后于真源，跑一次不带 `--check` 的版本再看 `git diff`。

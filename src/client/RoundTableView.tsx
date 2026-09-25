@@ -203,9 +203,9 @@ function nodeListRank(node: { status: string; activity?: string }): number {
 }
 
 /** 来源对话短号前缀（显示在会议切换下拉里，区分不同对话开的会议）。 */
-function sourcePrefix(captainSessionId: string): string {
-  if (captainSessionId === '') return '对话'
-  return `对话-${captainSessionId.slice(0, 4)}`
+function sourcePrefix(captainSessionId: string, t: (key: string) => string): string {
+  if (captainSessionId === '') return t('sourcePrefix').replace('-{id}', '')
+  return t('sourcePrefix').replace('{id}', captainSessionId.slice(0, 4))
 }
 
 /** 与 host 端 sanitizeKey 一致：把显示名转成会议内稳定的节点 key。 */
@@ -824,10 +824,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             setToast({ kind: 'ok', text: translate(template).replace('{from}', from).replace('{to}', to) })
             void refresh()
           } else {
-            setToast({ kind: 'err', text: result.error?.message ?? '连线失败' })
+            setToast({ kind: 'err', text: result.error?.message ?? translate('edgeConnectFailed') })
           }
         })
-        .catch(() => setToast({ kind: 'err', text: '连线失败：无法连接会议服务' }))
+        .catch(() => setToast({ kind: 'err', text: translate('edgeConnectFailedNoService') }))
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -910,7 +910,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           return
         }
         const saved = result.value.path
-        const actions: { kind: 'kb-path'; text: string }[] = [{ kind: 'kb-path', text: `修改了知识库路径为 ${saved}` }]
+        const actions: { kind: 'kb-path'; text: string }[] = [{ kind: 'kb-path', text: translate('actionKbPath').replace('{path}', saved) }]
         void Promise.allSettled(actions.map((action) => rpc<unknown>('roundtable/user-actions.append', {
           meetingId: meeting.id,
           kind: action.kind,
@@ -1023,7 +1023,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
   const queueRemove = (node: WireNode): void => {
     const confirmed = window.confirm(translate('manageRemoveConfirm').replace('{name}', node.key))
     if (!confirmed) return
-    const text = `删除了专家 ${node.key}`
+    const text = translate('actionRemoveNode').replace('{name}', node.key)
     void rpc<unknown>('roundtable/user-actions.append', {
       meetingId: meeting?.id,
       kind: 'remove-node',
@@ -1062,7 +1062,10 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     const model = form.model
     const reasoningEffort = form.reasoningEffort.trim()
     const effortSuffix = reasoningEffort === '' ? '' : ` @ ${reasoningEffort}`
-    const text = `新增了专家 ${key}${role !== '' ? `（角色：${role}）` : ''}${provider !== '' ? `，模型 ${provider}/${model}${effortSuffix}` : '，使用主持人默认模型'}`
+    const text = translate('actionAddNode')
+      .replace('{name}', key)
+      .replace('{role}', role !== '' ? '（' + translate('manageRole') + '：' + role + '）' : '')
+      .replace('{route}', provider !== '' ? '，' + provider + '/' + model + effortSuffix : '，' + translate('manageDefaultModel'))
     void rpc<unknown>('roundtable/user-actions.append', {
       meetingId: meeting.id,
       kind: 'add-node',
@@ -1357,7 +1360,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               >
                 {meetings.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
-                    {sourcePrefix(candidate.captainSessionId)} · {candidate.name}
+                    {sourcePrefix(candidate.captainSessionId, translate)} · {candidate.name}
                   </option>
                 ))}
               </select>
@@ -1440,8 +1443,8 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               })()
             ) : null}
           </svg>
-          {renderNode('captain', 'DeepSeek · 主持', 'captain')}
-          {renderNode('aggregator', '汇聚网关', 'aggregator')}
+          {renderNode('captain', translate('captainLabel'), 'captain')}
+          {renderNode('aggregator', translate('aggregatorLabel'), 'aggregator')}
           {meeting.nodes.filter((node) => node.status !== 'removed').map((node) => renderNode(node.key, node.key, 'node'))}
           {edgeRemoveDots.map((dot) => (
             <button
@@ -1500,7 +1503,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
               <div className={styles.logHead}>
                 <span className={styles.logFrom}>{utterance.from} → {utterance.to}</span>
                 <span className={styles.logTime}>
-                  {new Date(utterance.ts).toLocaleTimeString('zh-CN', { hour12: false })}
+                  {new Date(utterance.ts).toLocaleTimeString(translate('localeTag'), { hour12: false })}
                 </span>
               </div>
               <div className={styles.logText}>{utterance.text}</div>
@@ -1517,6 +1520,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
           sending={chatSending}
           t={translate}
           brandOf={providerBrand}
+          presets={presetList}
           onSend={(text) => { void sendChat(text) }}
         />
         )}
@@ -1782,7 +1786,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                     <div className={styles.agentInfo}>
                       <div className={styles.agentName}>{node.key}</div>
                       <div className={styles.agentRole}>
-                        {node.role !== '' ? `${node.role} · ` : ''}{node.provider !== '' ? `${node.provider}/${node.model}` : '（未指定模型）'}
+                        {node.role !== '' ? `${node.role} · ` : ''}{node.provider !== '' ? `${node.provider}/${node.model}` : translate('noModelSpecified')}
                       </div>
                     </div>
                     {removed ? (
@@ -1976,7 +1980,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
                           <div className={styles.reviewItemHead}>
                             {brandAvatar(brand, 'list')}
                             <span className={styles.reviewNode}>{viewpoint.nodeKey}</span>
-                            {viewpoint.seq > 0 ? <span className={styles.reviewSeq}>观点 {viewpoint.seq}</span> : null}
+                            {viewpoint.seq > 0 ? <span className={styles.reviewSeq}>{translate('reviewViewpoint')} {viewpoint.seq}</span> : null}
                             <span className={styles.reviewDimension}>{viewpoint.dimension}</span>
                             {viewpoint.status === 'endorsed' ? (
                               <span className={styles.reviewEndorsed}>{translate('reviewEndorsed')}</span>
