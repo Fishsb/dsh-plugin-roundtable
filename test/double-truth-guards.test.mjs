@@ -239,10 +239,12 @@ test('⑥-c 边界须贯通四段链：卡片 → 会议记录 → 总纲 → �
   assert.match(tools, /## 边界声明/, '导出物须含边界段（否则事后无法复盘是否越界）')
 })
 
-test('⑥-d 边界须三个参数都可传（plan_meeting 与 create 同批）', () => {
+test('⑥-d 边界须四个参数都可传（plan_meeting 与 create 同批）', () => {
   const tools = read('tools.ts')
   const hits = tools.match(/boundary_not_doing: \{ type: 'string'/g) ?? []
   assert.equal(hits.length, 2, 'plan_meeting 与 create 两处都要有 boundary_not_doing（漏一处即断链）')
+  const checkHits = tools.match(/boundary_check: \{ type: 'string'/g) ?? []
+  assert.equal(checkHits.length, 2, 'plan_meeting 与 create 两处都要有 boundary_check（P10 量化的落点，漏一处即断链）')
   assert.match(tools, /boundary_goal: \{ type: 'string'/, 'plan_meeting 须收 boundary_goal')
   assert.match(tools, /boundary_done: \{ type: 'string'/, 'plan_meeting 须收 boundary_done')
 })
@@ -361,4 +363,44 @@ test('⑨-c usage 须有独立的锚定用户指令条 + 主持人闭环职责',
   assert.match(usage, /clarify intent → compose the plan → dispatch → judge the returned results → re-dispatch/, '须写清主持人的闭环职责')
   assert.match(usage, /What does NOT count as progress/, '须定义"什么不算进展"（防自我感动式推进）')
   assert.match(usage, /never quietly redefine the goal/, '须禁止静默改目标')
+})
+
+/* ── ⑩ 边界可判定性：吸收 P10「成功标准须可量化」（结构性判据，非启发式）────── */
+
+test('⑩-a boundary.check 须五段贯通：类型 → 卡片 → 总纲 → status → 导出', () => {
+  const types = read('types.ts')
+  const plan = read('plan.ts')
+  const tools = read('tools.ts')
+  const charter = read('charter.ts')
+  assert.match(types, /check: string/, 'MeetingBoundary 须有 check 字段')
+  assert.match(plan, /怎么检查/, '设置卡须渲染检查方式')
+  assert.match(charter, /怎么检查才算达标/, '总纲须带检查方式（专家据此判"到底算不算完成"）')
+  assert.match(tools, /check: meeting\.boundary\.check/, 'status 须回吐 check（消费面）')
+  assert.match(tools, /- \*\*怎么检查\*\*：/, '导出物须留检查方式')
+})
+
+test('⑩-b 缺「怎么检查」时须出声（有 done 无 check 是"没人验得了的完成"）', () => {
+  const tools = read('tools.ts')
+  // 判因：done 已声明却没有任何检查方式 ⇒ 「完成」变成无法验证的主张（本插件反复剿的假绿形态）。
+  assert.match(tools, /no way to check, so "done" cannot be verified/, 'status 须点破"无检查方式 ⇒ done 不可验证"')
+  assert.match(tools, /a done-standard is declared but NOT how to check it/, 'status 须在 done 有值而 check 为空时显式警示')
+})
+
+test('⑩-c 量化判据不得做成关键词启发式（本项目已明令禁止分类判据）', () => {
+  const plan = read('plan.ts')
+  const tools = read('tools.ts')
+  /*
+   * 设计决定留档：曾拟"给 done 做模糊词表判定（性能良好/体验流畅 ⇒ 标红）"，
+   * **主动放弃** —— 那正是 ⑦-c 同型的脆弱启发式（造假红假绿）。
+   * 改采结构性判据：不问"写得够不够量化"（机器判不了），只问"有没有写下检查方式"
+   * （存在性，确定性可判）。
+   */
+  for (const [name, text] of [['plan.ts', plan], ['tools.ts', tools]]) {
+    assert.doesNotMatch(
+      text,
+      /性能良好|体验流畅|不可判定表述/,
+      `${name} 不得内置模糊词表（分类启发式会造出假红假绿）`,
+    )
+  }
+  assert.match(plan, /写不出检查方式的标准多半不可判定/, '须留档"结构判定而非措辞评判"的理由')
 })

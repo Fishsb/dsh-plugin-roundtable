@@ -468,27 +468,33 @@ export function RoundTableSettings(props: RoundTableSettingsProps): JSX.Element 
         <input
           className={styles.input}
           type="number"
-          min={1}
+          min={0}
           value={prefs.maxRounds}
           onChange={(event) => {
-            const value = Math.max(1, Math.floor(Number(event.target.value) || 1))
+            // 0 = 不限制（2026-09-24）：旧写法 `Math.max(1, …)` 会把用户刚敲下的 0
+            // 立刻改写成 1 —— 用户看到自己输入被无声顶掉，且永远存不进"不限制"。
+            const value = Math.max(0, Math.floor(Number(event.target.value) || 0))
             patch({ maxRounds: value })
           }}
         />
+        {prefs.maxRounds === 0 ? <span className={styles.hint}>{t('settingsUnlimitedTag')}</span> : null}
       </div>
       <div className={styles.field}>
         <label className={styles.label}>{t('settingsMaxTokens')}</label>
         <input
           className={styles.input}
           type="number"
-          min={1000}
+          min={0}
           step={1000}
           value={prefs.maxTokens}
           onChange={(event) => {
-            const value = Math.max(1000, Math.floor(Number(event.target.value) || 1000))
+            // 同上：0 是合法值，不得回落到 1000。
+            const value = Math.max(0, Math.floor(Number(event.target.value) || 0))
             patch({ maxTokens: value })
           }}
         />
+        {prefs.maxTokens === 0 ? <span className={styles.hint}>{t('settingsUnlimitedTag')}</span> : null}
+        <div className={styles.hint}>{t('settingsBudgetUnlimitedHint')}</div>
       </div>
       <div className={styles.field}>
         <label className={styles.label}>{t('settingsShowAll')}</label>

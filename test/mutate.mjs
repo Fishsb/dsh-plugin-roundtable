@@ -230,7 +230,10 @@ const mutations = {
     name: '命令路径裸投议题（主持人读不出这句话是谁说的）',
     file: 'src/index.ts',
     from: "          steerCaptain(invocation.agent, { kind: 'user-topic' }, outcome.steerText)",
-    to: "          invocation.agent.steer(createUserMessage({ content: [{ type: 'text', text: outcome.steerText }], source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' } }))",
+    // 0.1.7（ACT-373）：`kind: 'plugin'` 这个共享 catch-all 已从上游
+    // `MessageSourceMap` 删除，变异体改用当下**合法**的裸 source 形态
+    // ——否则这份"回归形态"自身就不再是可编译的真实反面例子。
+    to: "          invocation.agent.steer(createUserMessage({ content: [{ type: 'text', text: outcome.steerText }], source: { kind: 'user' } }))",
     expect: '裸 steer',
   },
   31: {
@@ -239,6 +242,61 @@ const mutations = {
     from: "      return 'Message from the user (round-table topic):'",
     to: "      return ''",
     expect: 'provenanceLabel 缺少封皮片段',
+  },
+  32: {
+    // 2026-09-23 吸收 P10「成功标准须可量化」新增的 check 字段。
+    // 本变异打的是它的**消费面**：把导出物里的检查方式整行删掉。
+    // 若 double-truth-guards ⑩-a / boundary-check-render 真的在管用，必转红。
+    name: '导出物丢掉「怎么检查」（判据退化成没人验得了的完成）',
+    file: 'src/tools.ts',
+    from: '    out.push(`- **怎么检查**：${meeting.boundary.check.trim() === \'\' ? \'（未声明）\' : meeting.boundary.check.trim()}`)',
+    to: '    // removed',
+    expect: '导出物须留检查方式',
+  },
+  33: {
+    // 打**总纲**那一侧：这是 P10 量化的真实落点（每个专家的 persona）。
+    // check 不进总纲 ⇒ 专家看不到"到底拿什么验"，只能凭 done 的文字自行想象。
+    name: '总纲丢掉「怎么检查才算达标」（专家看不到验收方式）',
+    file: 'src/charter.ts',
+    from: '          `- 怎么检查才算达标：${meeting.boundary.check.trim() === \'\' ? \'（未声明）\' : meeting.boundary.check.trim()}`,\n',
+    to: '',
+    expect: '总纲必须含检查方式正文',
+  },
+  34: {
+    // 2026-09-24「0 = 不限制」的**核心判据**。改成恒 false = 0 不再表示不限制
+    // （等价于回到旧实现 `round >= maxRounds`：0 成了最严格的上限，第 1 轮就闭麦）。
+    name: '0 不再表示不限制（budgetUnlimited 恒假 ⇒ 旧行为复活）',
+    file: 'src/budget.ts',
+    from: '  return !(limit > 0)',
+    to: '  return false',
+    expect: '0 必须表示不限制',
+  },
+  35: {
+    // 打**设置卡**这一面：用户确认的那一屏把 0 说成"超限自动闭麦"，
+    // 等于把他要求的"不限制"写成反面，而他会在这一屏点确认。
+    name: '设置卡把 0 说成「超限自动闭麦」（与 0=不限制 正好相反）',
+    file: 'src/plan.ts',
+    from: '    ? `${limit} ${unit}（= 不限制：该轴永不闭麦）`',
+    to: '    ? `${limit} ${unit}（超限自动闭麦）`',
+    expect: '设置卡必须让用户看见"不限制"三个字',
+  },
+  36: {
+    // 打**客户端设置页**：用户敲下 0 被 `Math.max(1, …)` 立刻改写成 1，
+    // 于是"不限制"永远存不进偏好 —— 这是"用户的要求被无声改写"的原形。
+    name: '设置页把 maxRounds 的 0 顶成 1（不限制永远存不进偏好）',
+    file: 'src/client/RoundTableSettings.tsx',
+    from: '            const value = Math.max(0, Math.floor(Number(event.target.value) || 0))\n            patch({ maxRounds: value })',
+    to: '            const value = Math.max(1, Math.floor(Number(event.target.value) || 1))\n            patch({ maxRounds: value })',
+    expect: 'maxRounds 不得把 0 顶成 1',
+  },
+  37: {
+    // 打**status 消费面**：退回手拼 `used/max` ⇒ 不限制的轴显示成 `42/0`，
+    // 主持人会把它读成"预算越用越少"，与"不限制"正好相反。
+    name: 'status 退回手拼 used/max（不限制的轴显示成 42/0）',
+    file: 'src/tools.ts',
+    from: '    `Budget: ${budgetAxisText(Number(budget.max_rounds), Number(budget.used_rounds))} rounds, ${budgetAxisText(Number(budget.max_tokens), Number(budget.used_tokens))} tokens (spoken-text estimate only — NOT the real LLM spend)`,',
+    to: '    `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,',
+    expect: 'status 不得再手拼 used/max',
   },
 }
 

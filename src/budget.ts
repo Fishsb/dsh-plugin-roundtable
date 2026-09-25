@@ -5,10 +5,42 @@
 
 import type { Meeting } from './types.ts'
 
-/** Which budget axis is exceeded, if any. */
+/**
+ * 预算轴的取值语义：**`0`（或任何非正数）= 不限制**，该轴永不闭麦。
+ *
+ * 判因（2026-09-24 · 用户要求「把上下文和轮次限制调到 0 表示不限制」）：
+ * 设置页的两个输入框一直写着 `min={0}`（专家限额一栏的文案也明说「0 = 不限制」），
+ * 但 `budgetExceeded` 此前是 `round >= maxRounds` —— 于是 `0` 变成了**最严格的**
+ * 上限：第 1 轮就 `0 >= 0` 立刻闭麦。同一份界面上，`0` 在一处表示"不限制"、
+ * 在另一处表示"立刻停"，这正是本仓反复在剿的「同一事实两个说法」。
+ *
+ * 收敛成这一个谓词（而不是各渲染点各自写 `<= 0`）的理由：判定者只能有一个。
+ * 谁改了这里，`budgetExceeded` / 设置卡 / status / 导出 / 拓扑条会**同时**改口径。
+ */
+export function budgetUnlimited(limit: number): boolean {
+  // 用 `!(limit > 0)` 而不是 `limit <= 0`：NaN 也归入"不限制"。
+  // 宁可在脏数据下不闭麦（用户还能收场），也不要因 NaN 比较恒假而让"上限失效"无声发生。
+  return !(limit > 0)
+}
+
+/** 预算用量的**单一口径**渲染：不限制的轴一律写作 `∞`（不得渲染成 `3/0`）。 */
+export const BUDGET_UNLIMITED_MARK = '∞'
+
+/** `已用/上限`，不限制时上限位为 `∞`。所有展示面（status / 导出 / 拓扑 / 设置卡）共用。 */
+export function budgetAxisText(limit: number, used: number): string {
+  return budgetUnlimited(limit) ? `${used}/${BUDGET_UNLIMITED_MARK}` : `${used}/${limit}`
+}
+
+/** **只渲染上限本身**（不带上限/已用对比），不限制时为 `∞`。用于"建会/改预算"回执。 */
+export function budgetLimitText(limit: number): string {
+  return budgetUnlimited(limit) ? BUDGET_UNLIMITED_MARK : String(limit)
+}
+
+/** Which budget axis is exceeded, if any. `0` 的轴不参与熔断（= 不限制）。 */
 export function budgetExceeded(meeting: Meeting): 'rounds' | 'tokens' | undefined {
-  if (meeting.round >= meeting.budget.maxRounds) return 'rounds'
-  if (meeting.budget.usedTokens >= meeting.budget.maxTokens) return 'tokens'
+  const { maxRounds, maxTokens, usedTokens } = meeting.budget
+  if (!budgetUnlimited(maxRounds) && meeting.round >= maxRounds) return 'rounds'
+  if (!budgetUnlimited(maxTokens) && usedTokens >= maxTokens) return 'tokens'
   return undefined
 }
 

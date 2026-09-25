@@ -1153,10 +1153,19 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
     : meeting.mode === 'redteam'
       ? translate('modeRedteam')
       : translate('modeOrchestrated')
-  const roundsPct = meeting.budget.maxRounds <= 0 ? 0
+  /*
+   * 预算条（2026-09-24 · 0 = 不限制）：
+   * 不限制的轴**不画进度条**（画一条空的会让人以为"快满了"），上限位渲染成 `∞`。
+   * 此处与 host 的 budgetAxisText 同口径 —— 两处都写 `∞`，不得一处写 0 一处写 ∞。
+   */
+  const roundsUnlimited = !(meeting.budget.maxRounds > 0)
+  const tokensUnlimited = !(meeting.budget.maxTokens > 0)
+  const roundsPct = roundsUnlimited ? 0
     : Math.min(100, (meeting.budget.usedRounds / meeting.budget.maxRounds) * 100)
-  const tokensPct = meeting.budget.maxTokens <= 0 ? 0
+  const tokensPct = tokensUnlimited ? 0
     : Math.min(100, (meeting.budget.usedTokens / meeting.budget.maxTokens) * 100)
+  const budgetDial = (unlimited: boolean, used: number, max: number): string =>
+    unlimited ? `${used}/∞` : `${used}/${max}`
 
   const renderEdge = (edge: WireEdge): JSX.Element | null => {
     const from = positions.get(edge.from)
@@ -1380,7 +1389,9 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             <div className={styles.budgetBar}>
               <div className={styles.budgetFill} style={{ width: `${roundsPct}%` }} />
             </div>
-            <span className={styles.budgetValue}>{meeting.budget.usedRounds}/{meeting.budget.maxRounds}</span>
+            <span className={styles.budgetValue}>
+              {budgetDial(roundsUnlimited, meeting.budget.usedRounds, meeting.budget.maxRounds)}
+            </span>
             <span className={styles.budgetLabel}>{translate('tokensBudget')}</span>
             <div className={styles.budgetBar}>
               <div className={styles.budgetFillTokens} style={{ width: `${tokensPct}%` }} />
@@ -1388,7 +1399,7 @@ export function RoundTableView(props: RoundTableViewProps): JSX.Element {
             {/* 口径标注（批次 A ⑫）：只挂 title，不改共用标签（`tokensBudget`
                 同时渲染在设置页，改它会把设置页一起改掉）。 */}
             <span className={styles.budgetValue} title={translate('tokensBudgetHint')}>
-              {meeting.budget.usedTokens}/{meeting.budget.maxTokens}
+              {budgetDial(tokensUnlimited, meeting.budget.usedTokens, meeting.budget.maxTokens)}
             </span>
           </div>
           {meeting.pendingDecisions.length > 0 ? (

@@ -10,6 +10,7 @@
  */
 
 import type { MeetingBoundary, SkillDelivery } from './types.ts'
+import { budgetUnlimited } from './budget.ts'
 
 /** skill 的两种传递方式（D5）。单一来源：types.ts。 */
 export type { SkillDelivery }
@@ -62,6 +63,19 @@ export type PlanConfirmation =
 /** 一行 `键：值`，值为空时显示占位符。 */
 function line(label: string, value: string, empty = '（未设置）'): string {
   return `- **${label}**：${value.trim() === '' ? empty : value.trim()}`
+}
+
+/**
+ * 预算上限的字面表述（2026-09-24 · 用户要求「0 表示不限制」）。
+ *
+ * 判因：卡片此前一律渲染成 `0 轮（超限自动闭麦）` —— 用户传 0 求"不限制"，
+ * 看到的却是"超限自动闭麦"，确认的还是那句错话。判据取自 `budget.ts`
+ * 的 `budgetUnlimited`（**唯一判定者**），本函数只负责措辞。
+ */
+function budgetLimitLabel(limit: number, unit: string): string {
+  return budgetUnlimited(limit)
+    ? `${limit} ${unit}（= 不限制：该轴永不闭麦）`
+    : `${limit} ${unit}（超限自动闭麦）`
 }
 
 /** 可选 skill 清单在卡片上最多列出的条数（超出只给数量）。 */
@@ -134,8 +148,10 @@ export function formatMeetingDraft(
     '## 会议参数',
     line('会议名称', draft.name, '（未命名）'),
     line('协作模式', modeLabel),
-    line('轮数上限', `${draft.maxRounds} 轮（超限自动闭麦）`),
-    line('Token 预算', `${draft.maxTokens} tokens（超限自动闭麦）`),
+    // 0 = 不限制（2026-09-24）：卡片上必须**看得见**"不限制"，否则用户确认的是一句
+    // "0 轮（超限自动闭麦）"——那正好把本意的反面写在了他眼前。
+    line('轮数上限', budgetLimitLabel(draft.maxRounds, '轮')),
+    line('Token 预算', budgetLimitLabel(draft.maxTokens, 'tokens')),
     line('知识库', draft.kbPath, '（未设置：专家需要资料时由主持人按需读取转交）'),
     line('选中 skill', skills, '（未选）'),
     line('skill 传递方式', deliveryLabel),
@@ -182,6 +198,7 @@ export function formatMeetingDraft(
       : [
           `- **要解决的现象**：${boundary.goal.trim() === '' ? '⚠（未填）' : boundary.goal.trim()}`,
           `- **算解决的标准**：${boundary.done.trim() === '' ? '⚠（未填）' : boundary.done.trim()}`,
+          `- **怎么检查**：${boundary.check.trim() === '' ? '⚠（未填：写不出检查方式的标准多半不可判定）' : boundary.check.trim()}`,
           `- **明确不做 / 不许动**：${boundary.notDoing.trim() === '' ? '⚠（未填）' : boundary.notDoing.trim()}`,
           '',
           '> 「明确不做」这一项就是**防拆东墙的判据**：会议过程中每次改动都要对照它自检',

@@ -22,7 +22,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 // Declaration merge only: makes ctx.llm visible for the model-list RPC.
 import type {} from '@deepseek-ai/dsh-llm'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { randomUUID } from 'node:crypto'
 import { readdir, rm, stat } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join } from 'node:path'
@@ -396,12 +395,31 @@ export function sanitizeDefaultPresetId(value: unknown, presets: readonly RolePr
   return presets.some((preset) => preset.id === raw) ? raw : ''
 }
 
+/**
+ * Live preference source.
+ *
+ * 0.1.7 起插件不再注册 settings namespace：偏好就住在插件自己的 volatile
+ * Config 里（`SettingsForms` 按 profile entry id 暴露这些字段）。`get()` 是
+ * **唯一读路径** —— 每次调用都从 volatile 引用取值，所以设置页写入经 Loader
+ * 推回引用后，工具层/RPC 立刻读到新值，无需重启，也没有第二份缓存要同步。
+ */
+export interface PreferenceStore {
+  get(): RoundTablePreferences
+}
+
 /** Holder shared between the settings fiber and the RPC fiber. */
 export interface RoundTableRuntime {
-  scope: SettingsScope<RoundTablePreferences> | undefined
+  /** 偏好读取面（volatile Config 的封装；见 {@link PreferenceStore}）。 */
+  prefs: PreferenceStore
+  /**
+   * 偏好写入面：把 patch 落进本插件的 profile entry。
+   *
+   * 由 `index.ts` 注入（它才拿得到 `ctx.fiber.entry.options.id` 与 Settings
+   * 服务）。缺省为空 = 插件没有 profile entry（无 Loader 装配），此时写操作
+   * **明确报错**而不是静默丢弃 —— 静默降级会让设置页看起来好用但什么都没存。
+   */
+  setPrefs?: (patch: Record<string, unknown>) => Promise<void>
   stateDir: string
-  /** In-memory preferences used when the settings scope is not mounted. */
-  fallbackPrefs: RoundTablePreferences
   /**
    * 会话级「圆桌讨论模式」状态表（会话 tab 那一半写入面）。
    *
@@ -525,7 +543,7 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
     try {
       switch (endpoint) {
           case 'roundtable/prefs.get': {
-            const prefs = runtime.scope?.get() ?? runtime.fallbackPrefs
+            const prefs = runtime.prefs.get()
             // `panels` 是**派生字段**（面板 id 单源），不属于持久化偏好，
             // 所以不塞进 RoundTablePreferences 接口，用交叉类型表达。
             return ok<RoundTablePreferences & { panels: string[] }>({
@@ -553,53 +571,35 @@ export function registerRpc(ctx: Context, runtime: RoundTableRuntime): RpcDispat
             // 0 = 不限制；任何有限非负整数都接受。
             const clampLimit = (value: unknown, fallback: number): number =>
               typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
-            if (runtime.scope === undefined) {
-              // Settings not mounted: keep an in-memory fallback so the settings
-              // page stays usable; persistence resumes on the next clean start.
-              const base = runtime.fallbackPrefs
-              const nextPresets = patch.rolePresets === undefined ? (base.rolePresets ?? []) : sanitizeRolePresets(patch.rolePresets)
-              const next: RoundTablePreferences = {
-                defaultMode: patch.defaultMode === 'orchestrated' || patch.defaultMode === 'egalitarian' || patch.defaultMode === 'redteam' ? patch.defaultMode : base.defaultMode,
-                maxRounds: typeof patch.maxRounds === 'number' && Number.isFinite(patch.maxRounds) && patch.maxRounds >= 1 ? Math.floor(patch.maxRounds) : base.maxRounds,
-                maxTokens: typeof patch.maxTokens === 'number' && Number.isFinite(patch.maxTokens) && patch.maxTokens >= 1000 ? Math.floor(patch.maxTokens) : base.maxTokens,
-                showAllMeetings: typeof patch.showAllMeetings === 'boolean' ? patch.showAllMeetings : base.showAllMeetings,
-                expertMaxTokens: clampLimit(patch.expertMaxTokens, base.expertMaxTokens ?? 0),
-                expertMaxOpinions: clampLimit(patch.expertMaxOpinions, base.expertMaxOpinions ?? 0),
-                feedbackEnabled: typeof patch.feedbackEnabled === 'boolean' ? patch.feedbackEnabled : (base.feedbackEnabled ?? true),
-                skillDelivery: patch.skillDelivery === 'direct' || patch.skillDelivery === 'relay' ? patch.skillDelivery : base.skillDelivery,
-                hiddenPanels: patch.hiddenPanels === undefined ? base.hiddenPanels : sanitizeHiddenPanels(patch.hiddenPanels),
-                rolePresets: nextPresets,
-                // B3+：缺省预设 id 必须指向现存预设，否则视为"无缺省"
-                defaultPresetId: sanitizeDefaultPresetId(patch.defaultPresetId ?? base.defaultPresetId ?? '', nextPresets),
-              }
-              runtime.fallbackPrefs = next
-              return ok<RoundTablePreferences>({
-                defaultMode: next.defaultMode,
-                maxRounds: next.maxRounds,
-                maxTokens: next.maxTokens,
-                showAllMeetings: next.showAllMeetings,
-                expertMaxTokens: next.expertMaxTokens,
-                expertMaxOpinions: next.expertMaxOpinions,
-                feedbackEnabled: next.feedbackEnabled,
-                skillDelivery: next.skillDelivery,
-                hiddenPanels: next.hiddenPanels,
-                rolePresets: next.rolePresets ?? [],
-                defaultPresetId: next.defaultPresetId ?? '',
-              })
+            if (runtime.setPrefs === undefined) {
+              // 0.1.7：偏好写在插件**自己的 profile entry** 上，没有 entry 就无处
+              // 落盘。以前这里会退回一份内存副本让设置页"看起来能用"，但那正是
+              // 静默失效 —— 用户改了设置、页面显示成功、重启后全部消失。现在
+              // 明确报错（同 ACT-373 对 settings.register 被 catch 吞掉的处理）。
+              return fail('preferences cannot be persisted: this plugin has no profile entry (settings service or Loader entry missing)')
             }
+            const current = runtime.prefs.get()
             // 写入前先净化：坏数据不落库（schemastery 不会替我们拦）。
             const sanitized: Record<string, unknown> = { ...patch }
+            /*
+             * 预算两轴（2026-09-24 · 用户要求「0 表示不限制」）：
+             * `0` 是**合法且有意义**的值，与"用户没填"必须分开 —— 所以回落值取
+             * **当前值**而不是某个常量，且判据是"有限非负整数"（`clampLimit`）。
+             * 负值/NaN ⇒ 拒绝写库并保留现值（不静默写成一个荒谬上限）。
+             */
+            if (patch.maxRounds !== undefined) sanitized.maxRounds = clampLimit(patch.maxRounds, current.maxRounds)
+            if (patch.maxTokens !== undefined) sanitized.maxTokens = clampLimit(patch.maxTokens, current.maxTokens)
             if (patch.hiddenPanels !== undefined) sanitized.hiddenPanels = sanitizeHiddenPanels(patch.hiddenPanels)
             if (patch.rolePresets !== undefined) sanitized.rolePresets = sanitizeRolePresets(patch.rolePresets)
             // B3+：缺省 id 必须指向（本次 patch 生效后的）现存预设，防死指针落库
             if (patch.defaultPresetId !== undefined) {
               const presetsAfterPatch = patch.rolePresets === undefined
-                ? sanitizeRolePresets(runtime.scope.get().rolePresets)
+                ? sanitizeRolePresets(current.rolePresets)
                 : sanitizeRolePresets(patch.rolePresets)
               sanitized.defaultPresetId = sanitizeDefaultPresetId(patch.defaultPresetId, presetsAfterPatch)
             }
-            await runtime.scope.update(sanitized)
-            const next = runtime.scope.get()
+            await runtime.setPrefs(sanitized)
+            const next = runtime.prefs.get()
             return ok<RoundTablePreferences>({
               defaultMode: next.defaultMode,
               maxRounds: next.maxRounds,

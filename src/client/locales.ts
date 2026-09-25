@@ -47,6 +47,8 @@ export type RoundTableKey =
   | 'settingsEgalitarianWarning'
   | 'settingsMaxRounds'
   | 'settingsMaxTokens'
+  | 'settingsBudgetUnlimitedHint'
+  | 'settingsUnlimitedTag'
   | 'settingsSave'
   | 'settingsSaved'
   | 'settingsLoadFailed'
@@ -293,6 +295,8 @@ export const zh: Record<RoundTableKey, string> = {
   settingsEgalitarianWarning: '已选择「多模型平等」：专家互相直达、无主持人中转，请务必设置足够的轮数/Token 上限，超限将自动闭麦。',
   settingsMaxRounds: '默认最大轮数',
   settingsMaxTokens: '默认 Token 预算',
+  settingsBudgetUnlimitedHint: '填 0 = 不限制（该轴永不闭麦）。两轴都不限制时，会议只能靠主持人判断完成而收场。',
+  settingsUnlimitedTag: '不限制',
   settingsSave: '保存',
   settingsSaved: '已保存',
   settingsLoadFailed: '读取设置失败',
@@ -534,6 +538,8 @@ export const en: Record<RoundTableKey, string> = {
   settingsEgalitarianWarning: 'Egalitarian selected: experts talk to each other directly with no captain relay — set generous round/token caps; exceeding them mutes the meeting.',
   settingsMaxRounds: 'Default max rounds',
   settingsMaxTokens: 'Default token budget',
+  settingsBudgetUnlimitedHint: '0 = unlimited (that axis never mutes). With both axes unlimited, only the captain\'s judgement ends the meeting.',
+  settingsUnlimitedTag: 'unlimited',
   settingsSave: 'Save',
   settingsSaved: 'Saved',
   settingsLoadFailed: 'Failed to load preferences',

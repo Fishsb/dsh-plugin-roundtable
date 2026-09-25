@@ -59,7 +59,7 @@ const NON_PRESET_TOKENS = new Set([
   // 工具参数名与字段名（add_node / plan_meeting / plan item 的接口词汇）
   'preset', 'role', 'provider', 'model', 'key', 'name', 'task', 'owner', 'kind', 'to', 'content', 'id',
   'change', 'review', 'survey', 'depends_on', 'work_item', 'regression_risk',
-  'boundary_not_doing', 'boundary_goal', 'boundary_done', 'user_directive', 'skip_plan_card',
+  'boundary_not_doing', 'boundary_goal', 'boundary_done', 'boundary_check', 'user_directive', 'skip_plan_card',
   'plan_card_skipped', 'talent_pool', 'round_signals', 'on_stage', 'skill_delivery',
   // 会议状态与审计 kind（领域枚举）
   'active', 'muted', 'ended', 'archived', 'capacity-over', 'gate-reject', 'all', 'captain', 'aggregator',

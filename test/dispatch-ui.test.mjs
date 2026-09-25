@@ -97,7 +97,11 @@ test('R-D-UI ③：wire 类型与视图必须一一接上（缺字段只是面�
 
 test('R-D-UI ④：host 必须把预设读取面接进快照路由（否则候选池恒 0 条）', () => {
   const index = read('../src/index.ts')
-  assert.match(index, /getRolePresets: \(\) => runtime\.scope\?\.get\(\)\?\.rolePresets/,
+  // 0.1.7 迁移（ACT-373）：偏好不再经 `runtime.scope`（settings namespace 已随
+  // `SettingsForms.register` 一起消失），改从 volatile Config 包装出的
+  // `runtime.prefs` 实时读取。判据钉的仍是**同一意图**：快照路由必须现读现取
+  // （不得烘焙成常量，否则设置页改了预设、候选池不跟着变）。
+  assert.match(index, /getRolePresets: \(\) => runtime\.prefs\.get\(\)\?\.rolePresets/,
     '快照路由必须实时注入预设读取面')
   assert.match(index, /collectMeetingSnapshots\(ctx, roots, sessionFilter, \{/, '必须以选项传入')
 })
