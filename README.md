@@ -5,7 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/deepseek-ai/deepseek-harness"><img src="https://img.shields.io/badge/DSH-0.1.5--rc.1%2B-blue" alt="DeepSeek Harness 0.1.5-rc.1+"></a>
-  <img src="https://img.shields.io/badge/version-v0.2.50-blue" alt="v0.2.50">
+  <img src="https://img.shields.io/badge/version-v0.2.61-blue" alt="v0.2.61">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
   <img src="https://img.shields.io/github/commit-activity/m/Fishsb/dsh-plugin-roundtable" alt="commit activity">
 </p>
@@ -44,6 +44,8 @@
 **协作与辩论**
 
 - 🎛️ **三种协作模式** — `主持人统筹` 一切经主持人转达；`多模型平等` 专家直达互辩、超预算自动闭麦；`针锋相对` 只对定稿方案挑毛病
+
+  > ⚠ **`多模型平等`（`egalitarian`）是实验性模式**：截至 2026-09-25 的实测统计，**28 场会议里 0 场生产使用**（唯一一次是插件作者自己的验证会议）。保留它是因为多模型互辩未来可能真需要，但它**尚未经过真实场景检验** —— 选它之前请知悉。
 - 🧮 **调度面（v0.2.42）** — 每轮提交 `plan[{id, task, owner, depends_on}]`：空依赖=同波并行，非空=1+max 波次；环/悬挂/未知席一律拒绝，**先校验后推进**（非法计划不烧轮）
 - 🔍 **计划 vs 实际对账** — `round_signals` 报未派席、未派工作项与越界转派，计划定了没跟到底看得见
 - 🧠 **代理思考** — 黑盒干活模型（视频/图片生成等）也有透明思考链：导演模型先写 `[DeepSeek 代理思考]` 再翻译参数

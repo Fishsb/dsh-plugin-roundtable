@@ -404,3 +404,205 @@ test('⑩-c 量化判据不得做成关键词启发式（本项目已明令禁�
   }
   assert.match(plan, /写不出检查方式的标准多半不可判定/, '须留档"结构判定而非措辞评判"的理由')
 })
+
+/* ── ①-e C-1 运行时夹具：单线制 + 零边 ⇒ 投递仍成立（行为，不是文本） ──────────
+ *
+ * 判因（2026-09-23 全量审计 · 册零验收 C-1；2026-09-25 三席独立实测复核）：
+ *   上面 ①-a..①-d 全是 `assert.match(read('tools.ts'), /…/)` 式的**文本包含**断言 ——
+ *   它们只能证明"源码里还写着 DECORATION 这句话"，**证明不了边真的不影响送达**。
+ *   代码与守卫可以一起漂移而同时为绿（把 `send_message` 改成读 edges 决定收件人，
+ *   ①-a..①-d 一条都不会红）。全仓此前没有任何夹具断言"无边也能送达"。
+ *   ⇒ 本夹具**真的执行投递路径**：起一个最小 Context、注册全部 roundtable_* 工具、
+ *     造一个 orchestrated 会议（`edges: []`）、调 `roundtable_send_message` 的
+ *     execute，检查返回的 `delivered` 与"子代理真的被唤醒"这一事实。
+ *
+ * ⚠ 关键前置：`dropped` 是一个**假红温床**。
+ *   `src/tools.ts:1418` 在活主持人取不到时（`ctx.agents.get(captainSessionId)` 为 undefined）
+ *   会一路走到 `:1447` 恒返回 dropped。若夹具不复现"活主持人"，本判据会在**任何**
+ *   实现下都报红 —— 包括正确实现。故 `agents.get` 必须真的把 captain 交回来，
+ *   并且下面用一条**转红自证**（把 agents.get 改成恒 undefined ⇒ 必得 dropped）钉住这一点。
+ *
+ * ⚠ 也不许拿源码当夹具输入：`read('tools.ts')` 只能是断言对象，不能是执行对象 ——
+ *   文本里"找得到 delivered=wake"与"运行时真的 wake"是两件事。
+ */
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { registerRoundTableTools } from '../src/tools.ts'
+
+/**
+ * 一组最小边（与零边一侧配对使用）。
+ *
+ * 单一来源：①-e′（有边仍需送达）、①-f（零边 vs 有边的差分）与 ①-e″/①-e‴ 的对照夹具
+ * 全走这一份 —— 否则"有边"在各测试里各写一份，改一处漏一处就成了新的双真相。
+ */
+const C1_EDGES = [
+  { id: 'e1', from: 'captain', to: 'oracle', direction: 'forward' },
+  { id: 'e2', from: 'captain', to: 'oracle', direction: 'bidirectional' },
+]
+
+/** 捕到就删；即便断言炸了也不在临时目录里留垃圾（`t.after` 在断言失败时同样会跑）。 */
+async function withDeliveryHarness(t, run) {
+  const root = await mkdtemp(join(tmpdir(), 'rt-c1-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const workspace = join(root, 'ws')
+  await mkdir(workspace, { recursive: true })
+  const captainId = 'sess-c1-captain'
+  const captain = { id: captainId, session: { header: { cwd: workspace } } }
+  const registry = new Map()
+  /** 子代理侧收到的每次唤醒（`deliverToNode` 的真实下游）。 */
+  const woken = []
+  const stateDir = '.rt-c1'
+  const makeContext = (options = {}) => ({
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    tools: { register(tool) { registry.set(tool.name, tool) }, get: () => undefined },
+    agents: {
+      get: (id) => (options.captainLive === false ? undefined : (id === captainId ? captain : undefined)),
+    },
+    subagents: {
+      async sendMessage(_agent, childId, blocks) {
+        if (options.sendFails === true) throw new Error('child is gone')
+        woken.push({ childId, text: (blocks ?? [])[0]?.text })
+        return true
+      },
+    },
+  })
+  registerRoundTableTools(makeContext(), {
+    stateDir,
+    memberProvider: 'subagent-spawn',
+    maxNodes: 12,
+    defaultMode: 'orchestrated',
+  })
+  /** 造一场最小会议：一名已出生专家 + 指定边集（零边=空数组，不是"缺字段"）。 */
+  const writeMeetingFixture = async ({ mode = 'orchestrated', edges = [] } = {}) => {
+    const meeting = {
+      id: 'c1',
+      name: 'C-1 fixture',
+      goal: 'g',
+      mode,
+      captainSessionId: captainId,
+      charter: '',
+      edges,
+      nodes: [{ key: 'oracle', role: 'r', id: 'child-oracle', status: 'idle' }],
+      decisions: [],
+      budget: { maxRounds: 10, maxTokens: 200000, usedRounds: 0, usedTokens: 0 },
+      round: 0,
+      skillDelivery: 'relay',
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    const dir = join(workspace, stateDir, meeting.id)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'meeting.json'), JSON.stringify(meeting, null, 2), 'utf8')
+    // 回传夹具本身：差分判据要能核对"两侧夹具的边数真的不同"（否则差分可能空转）。
+    return meeting
+  }
+  const send = registry.get('roundtable_send_message')
+  assert.ok(send !== undefined, 'roundtable_send_message 必须被注册（否则夹具根本没在执行投递路径）')
+  const exec = { agent: captain, signal: new AbortController().signal }
+  return { send, exec, woken, writeMeetingFixture, makeContext }
+}
+
+test('①-e C-1：单线制 + 零边 ⇒ send_message 仍真的送达（delivered=wake）', async (t) => {
+  const h = await withDeliveryHarness(t)
+  await h.writeMeetingFixture({ mode: 'orchestrated', edges: [] })
+  const result = await h.send.execute({ to: 'oracle', content: 'C-1 zero-edge delivery' }, h.exec)
+  assert.equal(
+    result.delivered,
+    'wake',
+    '单线制 + 零边必须仍能送达 —— 边一旦影响送达，"专家互不披露"的三模式语义即被破坏',
+  )
+  assert.deepEqual(
+    h.woken.map((entry) => entry.childId),
+    ['child-oracle'],
+    '送达必须是**真的唤醒了那个子代理**（只看返回值会被"返回 wake 但没调用下游"骗过）',
+  )
+  assert.equal(h.woken[0].text, 'C-1 zero-edge delivery', '被唤醒的子代理收到的必须是这条正文')
+})
+
+test('①-e′ C-1 对照：加一条边不改变投递结果（证明边不参与送达，而不是"边恰好没被读到"）', async (t) => {
+  const h = await withDeliveryHarness(t)
+  await h.writeMeetingFixture({ mode: 'orchestrated', edges: C1_EDGES })
+  const result = await h.send.execute({ to: 'oracle', content: 'C-1 with edges' }, h.exec)
+  assert.equal(result.delivered, 'wake', '有边时也必须送达（否则"零边也能送"只是碰巧）')
+  assert.deepEqual(h.woken.map((entry) => entry.childId), ['child-oracle'], '有边时下游唤醒同样是那一个子代理')
+})
+
+test('①-e″ C-1 转红自证：抽掉"活主持人"这一前置，判据必得 dropped（否则本夹具是假红温床）', async (t) => {
+  const h = await withDeliveryHarness(t)
+  // ⚠ 夹具用**有边**会议：本条的因由是"没有活主持人 ⇒ dropped"，
+  //   若沿用零边夹具，"边参与送达"这类破坏会顺带把本条也弄红 —— 红灯就不可归因了
+  //   （本仓 test/mutate.mjs:370-379 明令防的形态）。有边形态下本条只随该前置变化。
+  await h.writeMeetingFixture({ mode: 'orchestrated', edges: C1_EDGES })
+  // 用一份"agents.get 恒 undefined"的上下文重注册：这正是 src/tools.ts:1418 → :1447 的路径。
+  const registry = new Map()
+  registerRoundTableTools({
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    tools: { register(tool) { registry.set(tool.name, tool) }, get: () => undefined },
+    agents: { get: () => undefined },
+    subagents: { async sendMessage() { return true } },
+  }, { stateDir: '.rt-c1', memberProvider: 'subagent-spawn', maxNodes: 12, defaultMode: 'orchestrated' })
+  const result = await registry.get('roundtable_send_message').execute({ to: 'oracle', content: 'x' }, h.exec)
+  assert.equal(
+    result.delivered,
+    'dropped',
+    '没有活主持人时必须 dropped —— 本断言证明 ①-e 的 wake 来自真的投递路径，而不是夹具恰好读了个常数',
+  )
+})
+
+test('①-e‴ 定范围：本夹具钉的是"送达不看边"，不得顺手替 recipientPolicy 背书', async (t) => {
+  const h = await withDeliveryHarness(t)
+  // 同 ①-e″：因由是"未知收件人必须报错"，与边无关 ⇒ 用有边夹具，避免被"边影响送达"带红。
+  await h.writeMeetingFixture({ mode: 'orchestrated', edges: C1_EDGES })
+  // 收件人策略（visibility.ts）另有其守卫，这里是它的前提边界：未知收件人应显式报错。
+  await assert.rejects(
+    () => h.send.execute({ to: 'ghost', content: 'x' }, h.exec),
+    /no active node named "ghost"/,
+    '未知收件人必须报错（不是静默 dropped）—— 否则"送达"读数的含义会被稀释',
+  )
+  assert.deepEqual(h.woken, [], '被拒绝的投递不得唤醒任何子代理')
+})
+
+test('①-f C-1 差分：零边与有边的投递结果必须**完全一致**（边不得影响送达）', async (t) => {
+  const zero = await withDeliveryHarness(t)
+  const zeroMeeting = await zero.writeMeetingFixture({ mode: 'orchestrated', edges: [] })
+  const zeroResult = await zero.send.execute({ to: 'oracle', content: 'differential probe' }, zero.exec)
+
+  const withEdge = await withDeliveryHarness(t)
+  const edgeMeeting = await withEdge.writeMeetingFixture({ mode: 'orchestrated', edges: C1_EDGES })
+  const edgeResult = await withEdge.send.execute({ to: 'oracle', content: 'differential probe' }, withEdge.exec)
+
+  /*
+   * ⚠ 反空转（2026-09-25 · 非归因红灯倒逼）：
+   * 差分断言要真的在差，前提是两侧夹具**确实不同**。若哪天有人把两处都写成 edges: []，
+   * 下面两条 deepEqual 会永远成立 —— 一条恒真判据比没有判据更坏（它冒充覆盖）。
+   * 故先把"夹具确实不同"钉住，并附边数读数。
+   */
+  assert.deepEqual(
+    zeroMeeting.edges.map((edge) => edge.id),
+    [],
+    '差分左侧夹具必须真的是零边（否则差分恒真 ⇒ 这条判据在冒充覆盖）',
+  )
+  assert.deepEqual(
+    edgeMeeting.edges.map((edge) => edge.id),
+    C1_EDGES.map((edge) => edge.id),
+    '差分右侧夹具必须真的是有边 —— 两侧边数必须不同，差分才有信息',
+  )
+
+  // 差分主体：**逐字**比对两侧结果（delivered 与"谁收到了什么"），差异即失败。
+  assert.equal(
+    edgeResult.delivered,
+    zeroResult.delivered,
+    '边不得影响投递结果：零边与有边必须得到同一 delivered —— 边一旦参与送达，'
+    + '单线制的"专家互不披露"语义即被破坏（且此处只该因"边"而红）',
+  )
+  assert.deepEqual(
+    withEdge.woken,
+    zero.woken,
+    '边不得影响投递结果：有边时下游收到的 (childId, text) 必须与零边时逐字相同',
+  )
+  // 双方都真的送到了：防"两边一起坏成同一个错值"（差分只测相等，测不出"同样地为空"）。
+  assert.equal(zeroResult.delivered, 'wake', '零边一侧必须真的送达（否则"两边一致"只是"两边都没送出去"）')
+  assert.equal(withEdge.woken.length, 1, '有边一侧必须真的唤醒了 1 个子代理（同上）')
+})

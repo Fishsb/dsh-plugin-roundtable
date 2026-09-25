@@ -298,6 +298,35 @@ const mutations = {
     to: '    `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,',
     expect: 'status 不得再手拼 used/max',
   },
+  38: {
+    // 回归面 B（2026-09-25 独立审查实测、本席复验）：让**边参与送达** —— 无匹配边即拒投。
+    // 后果：①-e 的**第一处**断言（delivered 必须 wake）转红。
+    // 锚点选**下游调用行**而非分支条件行：它唯一（`prepared.recipient.id` 全文件仅此一处），
+    // 且是"投递真的发生"的唯一落点 —— 改它即等价于"接口假装投递了"。
+    name: '边参与送达（无匹配边即拒投，delivered 退化为 dropped）',
+    file: 'src/tools.ts',
+    from: '        const accepted = await deliverToNode(ctx, captainLive, prepared.recipient.id, content, exec.signal)',
+    to: '        const accepted = captainLive !== undefined && prepared.meeting.edges.some((edge) => edge.to === prepared.recipient.key)',
+    expect: '①-e',
+  },
+  39: {
+    // 回归面 D2（2026-09-25 独立审查实测、本席复验）：删掉 deliverToNode 的下游 sendMessage 调用。
+    // 后果最阴：**接口仍返回 wake**（"成功"），但没有任何子代理被唤醒（结果未达成）——
+    // 只有"下游真的收到"这一层断言抓得到。它是"接口成功 ≠ 结果达成"的活体标本。
+    name: 'deliverToNode 删掉下游调用（返回 wake，但没人被唤醒）',
+    file: 'src/members.ts',
+    from: "    await ctx.subagents.sendMessage(\n      captain,\n      childId as SessionId,\n      [{ type: 'text', text }],\n      { signal },\n    )",
+    to: '    void captain\n    void childId\n    void text\n    void signal',
+    // 归因取**诊断串**而不是测试标题：本变异响的是 ①-e 的**第二处**断言
+    // （"送达必须是**真的唤醒**了那个子代理"）—— 它上面还有一条 assert.equal(delivered, 'wake')。
+    // 钉标题会与同时变红的其它块混淆；钉这句则只在"下游真被掏空"时出现，无二义。
+    // ⚠ 口径：expect 与断言文案必须**连标点逐字**相同（node:test 打印整条消息，差一字即不归因）。
+    // 归因取**测试标题**（块首那行 ✖）而不是某条断言原文：①-e 体内有两处断言，
+    // 两种坏法各响一处（掏空下游 ⇒ 第二处响；架空分支 ⇒ 第一处响），绑死其中一条
+    // 会让另一种坏法被判「非目标守卫」——本席实测：本仓工作区当前带残留变异时，
+    // 第一处先响，钉第二处那句即判 FAIL。钉标题两者都收，且仍能排除"别的测试红了"。
+    expect: '①-e C-1',
+  },
 }
 
 const id = process.argv[2]
@@ -326,6 +355,25 @@ function failingBlocks(output) {
     } else if (cur !== null) cur.push(line)
   }
   if (cur !== null) blocks.push(cur.join('\n'))
+  if (blocks.length > 0) return blocks
+  /*
+   * spec 报告回退（2026-09-25 本席实测）：`npm test` 在此环境下跑出的是 node 的
+   * **spec** reporter，不是 TAP —— 没有任何 `not ok` 行，只有末尾一个
+   * `✖ failing tests:` 段，段内每块以 `test at <file>:<line>:<col>` 起头。
+   * 不认这个形态，归因判定就永远看不到失败块 ⇒ 每条**已经红了**的变异都被读成
+   * 「FAIL（假绿）」。两种形态都要认，且 TAP 优先（老环境/老 node 不受影响）。
+   */
+  const lines = output.split('\n')
+  const start = lines.findIndex((line) => /^\s*\u2716\s*failing tests:?\s*$/.test(line))
+  if (start < 0) return []
+  let fallback = null
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*test at \S+:\d+:\d+\s*$/.test(line)) {
+      if (fallback !== null) blocks.push(fallback.join('\n'))
+      fallback = [line]
+    } else if (fallback !== null) fallback.push(line)
+  }
+  if (fallback !== null) blocks.push(fallback.join('\n'))
   return blocks
 }
 
@@ -345,28 +393,57 @@ const original = readFileSync(url, 'utf8')
  * 归一放在**比较与替换**两处（而不是改写锚点字面量）：锚点保持可读的 LF 写法，
  * 与工作区实际行尾解耦 —— 换到 LF 检出的环境（Linux/CI）同样成立。
  */
-const eol = original.includes('\r\n') ? '\r\n' : '\n'
-const anchor = mutation.from.replace(/\n/g, eol)
-const replacement = mutation.to.replace(/\n/g, eol)
-
-if (!original.includes(anchor)) {
+/*
+ * ⚠ 2026-09-25 实测**第三类失效**（本席复核时发现，与"实现已变"无关）：
+ *   旧判据 `original.includes('\r\n') ? CRLF : LF` 是"整个文件选一种行尾"。
+ *   但工作区文件可以**混用**：`src/client/RoundTableView.tsx` 2157 个 LF 里夹 **1** 个
+ *   裸 CR，`src/client/locales.ts` 夹 **12** 个。于是整条锚点被切成 CRLF，而正文是 LF
+ *   ⇒ `includes` 恒 false ⇒ 变异 9/10/11 在下面 `exit 3` 处**静默退出，从来没在测东西**。
+ *   （mutation-probe-health 抓不到：它按 **LF 归一后**比对 from，那一步恒成立。）
+ * 故改成两侧都试，命中的那一侧同时用于 replace；两侧都不中才判"锚点没找到"。
+ */
+const candidates = [
+  { anchor: mutation.from.replace(/\n/g, '\r\n'), replacement: mutation.to.replace(/\n/g, '\r\n') },
+  { anchor: mutation.from, replacement: mutation.to },
+]
+const hit = candidates.find((candidate) => original.includes(candidate.anchor))
+if (hit === undefined) {
   console.error(`变异 ${id} 的锚点没找到（实现已变？）：${mutation.from.slice(0, 60)}`)
   process.exit(3)
 }
+const anchor = hit.anchor
+const replacement = hit.replacement
 
 let failed = 0
 let attributed = false
+/** 归因命中块数（PASS 只要求 >0；两者不等 = 套件里另有红灯） */
+let attributedBlocks = 0
 try {
   writeFileSync(url, original.replace(anchor, replacement), 'utf8')
   let output = ''
   try {
     output = execFileSync('npm test', { cwd: projectRoot, encoding: 'utf8', shell: true, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (error) {
-    output = `${error.stdout ?? ''}${error.stderr ?? ''}`
+    /*
+     * ⚠ 失败输出**不能**只取 stdout（2026-09-25 本席实测）：
+     *   子进程非零退出时 node:test 把整份报告**写到 stderr**，stdout 只剩 npm 的两行头。
+     *   于是下面所有解析都作用在一份「没有 # fail、没有失败块」的空报告上，
+     *   每条已经红了的变异都会被读成「FAIL（假绿）」。原实现正是这样全表误判。
+     *   两份都取、各取更长的那份，是唯一与 reporter 去向无关的取法。
+     *   ⚠ 与 npm 自身错误路径不冲突：那时两份都没有测试报告，期望文案搜不到，
+     *   结果同样是「不归因」——不会因此把某条变异错判成有效。
+     */
+    const streams = [String(error.stdout ?? ''), String(error.stderr ?? '')]
+    output = streams[0].length >= streams[1].length ? streams[0] : streams[1]
   }
-  const failLine = output.split('\n').find((line) => line.startsWith('# fail'))
-  failed = Number.parseInt((failLine ?? '# fail NaN').replace('# fail ', ''), 10)
-  const passLine = output.split('\n').find((line) => line.startsWith('# pass'))
+  /*
+   * 读数须同时认两种 reporter（2026-09-25 实测）：TAP 的 `# fail N` / `# pass N`，
+   * 与 spec 的 `ℹ fail N` / `ℹ pass N`。只认 TAP 时，spec 环境下
+   * failed 恒为 NaN ⇒ **所有变异都被判假绿**，而探针自己不会因此报错。
+   */
+  const failLine = output.split('\n').find((line) => line.startsWith('# fail') || line.startsWith('\u2139 fail'))
+  failed = Number.parseInt((failLine ?? '# fail NaN').replace(/^(# fail|\u2139 fail)\s*/, ''), 10)
+  const passLine = output.split('\n').find((line) => line.startsWith('# pass') || line.startsWith('\u2139 pass'))
   // 归因判定（v0.2.49 加严）：**必须有一个失败块里出现本变异的 expect 文案**。
   //
   // 为什么不能只看 `# fail > 0`：那个判据区分不出
@@ -377,9 +454,20 @@ try {
   const blocks = failingBlocks(output)
   const matched = blocks.filter((block) => block.includes(mutation.expect))
   attributed = matched.length > 0
-  const attributedTo = matched
-    .map((block) => (block.split('\n').find((line) => /^not ok /.test(line.trim())) ?? '').trim())
-    .filter((line) => line !== '')
+  attributedBlocks = matched.length
+  /*
+   * 失败块的两种表头都要认（TAP: `not ok`；spec: `test at <file>:<line>:<col>` 之后那行
+   * `✖ <测试名>`）。只认 TAP 时，attributedTo 恒为空 —— 即便判定为 PASS，
+   * 也报不出**是哪条守卫**抓到的，归因就成了无法复核的结论。
+   */
+  const blockHead = (block) => {
+    for (const line of block.split('\n')) {
+      const t = line.trim()
+      if (/^not ok /.test(t) || /^\u2716 /.test(t)) return t
+    }
+    return ''
+  }
+  const attributedTo = matched.map(blockHead).filter((line) => line !== '')
   console.log(`变异 ${id}：${mutation.name}`)
   console.log(`  ${failLine ?? '(无 # fail 行)'} / ${passLine ?? '(无 # pass 行)'}`)
   console.log(`  期望守卫文案：${mutation.expect}`)
@@ -387,8 +475,9 @@ try {
   if (failed > 0 && !attributed) {
     console.log(`  ⚠ 有 ${blocks.length} 个失败块，但没有一个含期望文案 —— 疑非目标守卫（或 expect 写错）`)
     for (const block of blocks.slice(0, 3)) {
-      const line = block.split('\n').find((l) => /^not ok /.test(l.trim()))?.trim() ?? ''
-      const err = block.split('\n').find((l) => /^\s*error: /.test(l))?.trim() ?? ''
+      const line = blockHead(block)
+      // spec reporter 用 `✖ <类型> [ERR_...]: <消息>` 而不是 TAP 的 `error: ` 行。
+      const err = block.split('\n').map((l) => l.trim()).find((l) => /^error: /.test(l) || /^[A-Za-z]*Error \[/.test(l)) ?? ''
       console.log(`     ${line.slice(0, 110)}  ${err.slice(0, 110)}`)
     }
   }
@@ -398,4 +487,12 @@ try {
   writeFileSync(url, original, 'utf8')
 }
 
+/*
+ * 判定汇总（2026-09-25 加）：单条运行时，"PASS + 其它失败块" 与 "PASS" 看起来一样，
+ * 而前者其实是**假绿在场**（别的原因把套件弄红了，目标守卫只是碰巧也红了）。
+ * 归因块仍是 PASS 的唯一判据；这一行只是把并列失败数报出来，不留白。
+ */
+if (failed > 0 && attributed && attributedBlocks < failed) {
+  console.log(`  ⚠ 另有 ${failed - attributedBlocks} 个失败块不含本变异的期望文案 —— 归因仍成立，但套件里还有别的红灯`)
+}
 process.exit(failed > 0 && attributed ? 0 : 1)
