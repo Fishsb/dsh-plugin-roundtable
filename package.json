@@ -66,7 +66,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node --test \"test/*.test.mjs\" && node scripts/export-experts.mjs --selftest",
+    "test:selftest": "node scripts/export-experts.mjs --selftest",
     "test:inline": "node --test --experimental-test-isolation=none \"test/*.test.mjs\"",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsdown -c tsdown.config.ts && tsc -p tsconfig.json --emitDeclarationOnly && tsc -p tsconfig.client.json --emitDeclarationOnly",
     "bundle:client": "tsdown -c tsdown.config.ts"

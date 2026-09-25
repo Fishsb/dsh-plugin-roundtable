@@ -121,9 +121,13 @@ dsh plugin --profile web add .
 | 验证与取证 | 5 | 判据先立、缺陷能复现、事实有出处、与基线对照 |
 | 视角与交付 | 3 | 换到使用者一侧看，排出时间线，组织成交付文档 |
 
-用法：把 `experts.yaml` 的内容粘进 `~/.dsh/settings.yaml` 的 `roundtable.rolePresets` 下，重启 DSH 即出现在设置页；开会时主持人用 `roundtable_list_presets` 读取并按需上席。也可以只挑几席——删掉不需要的条目即可。
+用法：把 `experts.yaml` 的内容粘进**当前 profile** 的 `cordis.patch.yml`（`id: roundtable` 那条的 `config.rolePresets`）下，或在 DSH「设置 → 圆桌会议 → 角色预设」里逐条建立；重启 DSH 即出现在设置页；开会时主持人用 `roundtable_list_presets` 读取并按需上席。也可以只挑几席——删掉不需要的条目即可。
 
-> `EXPERTS.md` 与 `experts.yaml` 由 `scripts/export-experts.mjs` 从磁盘真相直出，**禁止手写**；漂移检查 `node scripts/export-experts.mjs --check`。
+> `EXPERTS.md` 与 `experts.yaml` 由 `scripts/export-experts.mjs` 从磁盘真相直出，**禁止手写**。
+> `node scripts/export-experts.mjs --check` 只校验**真源可解析且自洽**（席数/分组覆盖/id 唯一/字段齐全），**不与仓库产物比对**；
+> 要判产物是否落后于真源，跑一次不带 `--check` 的版本再看 `git diff`。
+> `node scripts/export-experts.mjs --selftest` 机检 6 例**真源降级路径**（多候选下主源损坏/为空/不可达、显式单源不回落等，均在临时沙箱内进行、不碰产物）；
+> 它已接进 `npm test`（`test` 脚本串联），退出码 1 = 判据被打破、2 = 环境缺 YAML 解析库（与判据失败区分）。
 
 ## 🔄 工作原理
 
@@ -265,8 +269,10 @@ pnpm build        # typecheck + tsdown（lib/index.js + lib/client.js）+ 双端
 pnpm test:inline  # 同上，但测试在同一进程内跑（不 spawn 子进程 / 不占管道）
 
 node scripts/generate-logos.mjs    # 替换 src/client/assets/logos/ 下图片后重跑，再 pnpm build
-node scripts/export-experts.mjs    # 从 settings.yaml 直出 EXPERTS.md 与 experts.yaml
-node scripts/export-experts.mjs --check   # 只校验专家团与磁盘真相是否一致
+node scripts/export-experts.mjs    # 从当前预设落盘处直出 EXPERTS.md 与 experts.yaml
+node scripts/export-experts.mjs --check   # 只校验真源可解析且自洽（不比对产物、不写盘）
+node scripts/export-experts.mjs --settings <path>   # 显式指定老式 settings.yaml 形态真源
+node scripts/export-experts.mjs --patch <profile>/cordis.patch.yml   # 显式指定宿主 profile 形态真源
 ```
 
 > `pnpm test` 用 Node 标准测试运行器（每个测试文件一个子进程）。在**禁止子进程管道**的环境里（例如 DSH 自带沙箱）会以 `spawn EPERM` 失败——那是环境限制，不是测试失败；改用 `pnpm test:inline`（需 Node ≥ 22.8）。
