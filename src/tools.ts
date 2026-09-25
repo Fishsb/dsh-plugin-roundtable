@@ -256,6 +256,44 @@ async function locateParticipantMeeting(stateRoot: string, agentId: string): Pro
   return located
 }
 
+/**
+ * 闭麦（muted）**不豁免**的收场类动作 —— 白名单，不是黑名单。
+ *
+ * 判因（2026-09-25 · 本机亲历的死锁，实测复现）：轮数超限闭麦后，
+ * `roundtable_set_budget` / `roundtable_close` / `roundtable_export_meeting` **自身**
+ * 也被本函数的 `ensureActive` 拦下 —— 于是既补不了额、也关不了会、还导不出记录。
+ * 更糟的是错误文案（`budget.ts` 的 MeetingMutedError）恰恰承诺"可用 set_budget 补额
+ * 或 close 收场"：**文案承诺的出路被实现堵死**，同一事实两个说法。
+ *
+ * 语义分界（为什么是这几个）：
+ *  · 被拦的是**参会者动作**——推进轮次 / 发言 / 派单 / 改名单；这些持续消耗预算，
+ *    闭麦就该停下，否则"上限"形同虚设。
+ *  · 豁免的是**收场动作**——查看状态 / 补额解麦 / 导出记录 / 结束会议 / 审阅记录。
+ *    它们不消费"讨论轮次"，且是闭麦后**唯一**能让会议回到可控态的手段；
+ *    拦下它们等于把会议锁死（用户只能手工改磁盘文件，这正是本次发生的事）。
+ *
+ * ⚠ 白名单取向（与"冻结棘轮只在显式抬升时放开"同理）：新增一个主持人工具时
+ * **默认会被闭麦拦住**——要豁免必须在这里显式登记并说明理由。缺省安全。
+ */
+export const MUTE_EXEMPT_ACTIONS: readonly string[] = [
+  'change the budget',            // 解麦的唯一入口（文案承诺的出路）
+  'export the meeting',           // 闭麦后仍应能留档
+  'export the review',            // 同上
+  'close it',                     // 收场（否则会议永远停在 muted）
+  'finish the review',            // 收口复审结果
+]
+
+/**
+ * 该动作是否**豁免**闭麦（闭麦后仍可执行）。
+ *
+ * ⚠ 纯函数 + 显式导出（而不是内联 `Set.has`）：闭麦死锁是一条**接线级**缺陷 ——
+ * `budget.ts` 的纯函数单测全绿，却没有任何测试问过"收场工具到底调不调得到它"。
+ * 抽成可导入的谓词后，判据才可能覆盖到接线层。
+ */
+export function isMuteExempt(action: string): boolean {
+  return MUTE_EXEMPT_ACTIONS.includes(action)
+}
+
 /** Lock + captain-permission gate + active check: the inner captain-tool boilerplate. */
 async function withCaptainLock<T>(
   stateRoot: string,
@@ -269,7 +307,11 @@ async function withCaptainLock<T>(
     if (fresh === undefined || fresh.captainSessionId !== captainId) {
       throw new Error(`only the captain of meeting "${meetingId}" may ${action}`)
     }
-    ensureActive(fresh)
+    // 闭麦豁免：收场类动作不受预算闸门约束（见 MUTE_EXEMPT_ACTIONS 的判因）。
+    // 非豁免动作**照旧**被 ensureActive 拦下 —— 豁免是显式登记的例外，不是放水。
+    if (!isMuteExempt(action)) {
+      ensureActive(fresh)
+    }
     return operation(fresh)
   })
 }
