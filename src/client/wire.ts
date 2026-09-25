@@ -20,6 +20,11 @@ export type RpcCaller = <T>(endpoint: string, payload: unknown) => Promise<RpcEn
  * connection channel is not mounted — which is what made the settings page
  * report 「读取设置失败」. An unreachable or malformed answer is reported as a
  * failure envelope instead of a rejected promise.
+ *
+ * T3（2026-09-25）：该路由现在要求**已鉴权的浏览器会话**（服务端复用宿主
+ * BrowserAuth）。浏览器请求天然带同源 cookie，故 `credentials: 'same-origin'`
+ * 是让它继续可用的关键 —— 少了这一项，同源 fetch 在部分配置下不发 cookie，
+ * 设置页会突然全线 401。这不是可选优化，是 T3 的配套件。
  */
 export async function callRpc<T>(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<RpcEnvelope<T>> {
   try {
@@ -28,6 +33,7 @@ export async function callRpc<T>(endpoint: string, payload: unknown, signal?: Ab
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ endpoint, payload }),
       cache: 'no-store',
+      credentials: 'same-origin',
       ...(signal === undefined ? {} : { signal }),
     })
     const body = await response.json() as unknown
@@ -65,7 +71,9 @@ export interface WireEdge {
 }
 
 export interface WireBudget {
+  /** 轮数上限；**0 = 不限制**（该轴永不闭麦）。 */
   maxRounds: number
+  /** Token 预算上限；**0 = 不限制**（该轴永不闭麦）。 */
   maxTokens: number
   usedRounds: number
   usedTokens: number
@@ -427,7 +435,9 @@ export async function fetchTranscript(
 
 export interface RoundTablePrefs {
   defaultMode: 'orchestrated' | 'egalitarian' | 'redteam'
+  /** 默认轮数上限；**0 = 不限制**（该轴永不闭麦）。 */
   maxRounds: number
+  /** 默认 Token 预算上限；**0 = 不限制**（该轴永不闭麦）。 */
   maxTokens: number
   /** 互通开关：true=显示所有圆桌会议；false=仅显示当前对话开启的会议。 */
   showAllMeetings: boolean
@@ -458,6 +468,9 @@ export async function fetchMeetings(sessionId?: string): Promise<WireMeeting[]> 
   const query = sessionId === undefined ? '' : `?session=${encodeURIComponent(sessionId)}`
   const response = await fetch(`/plugins/dsh-plugin-roundtable/state${query}`, {
     cache: 'no-store',
+    // T3：该路由要求已鉴权的浏览器会话（服务端复用宿主 BrowserAuth）。
+    // 同源 cookie 是让设置页/拓扑页继续可用的配套件。
+    credentials: 'same-origin',
   })
   if (!response.ok) throw new Error(`roundtable state route returned ${response.status}`)
   const body = await response.json() as { meetings?: WireMeeting[] }

@@ -43,7 +43,16 @@ import { buildCharter } from './charter.ts'
 import { aggregateUtterances } from './aggregator.ts'
 import { userSourceMark } from './utterance-source.ts'
 import { proxyThinkingPrompt } from './proxy-thinking.ts'
-import { beginRound, budgetExceeded, ensureActive, estimateTokens, MeetingMutedError } from './budget.ts'
+import {
+  beginRound,
+  budgetAxisText,
+  budgetExceeded,
+  budgetLimitText,
+  budgetUnlimited,
+  ensureActive,
+  estimateTokens,
+  MeetingMutedError,
+} from './budget.ts'
 import { deliverToNode, interruptNode, nodeActivity, spawnNode, steerCaptain, type MemberRuntimeConfig } from './members.ts'
 import { splitByMarkers, splitUtterance, type SplitLlmLike } from './review-split.ts'
 import {
@@ -346,8 +355,9 @@ interface AskUserQuestionAnswerItemLike {
  * 会议设置卡片（R1）的默认值解析与卡片渲染。
  *
  * 默认值优先级（任务书 R1 第 3 条）：会议参数显式传入 > 插件
- * PreferenceSchema（设置页）> 插件 Config 默认值。设置页那一层由 index.ts
- * 通过 getPlannedDefaults 注入，这里只负责"显式传入 > 注入的偏好"。
+ * 用户偏好（设置页，0.1.7 起住在插件自己的 volatile Config 里）> 插件
+ * Config 默认值。设置页那一层由 index.ts 通过 getPlannedDefaults 注入，
+ * 这里只负责"显式传入 > 注入的偏好"。
  * ------------------------------------------------------------------ */
 
 /** Normalize one meeting-mode argument (throws on garbage). */
@@ -385,18 +395,38 @@ function plannedDefaults(config: ToolsConfig, args: Record<string, unknown>): Pl
     maxTokens: DEFAULT_MAX_TOKENS,
     skillDelivery: 'relay' as SkillDelivery,
   }
-  const maxRounds = typeof args.max_rounds === 'number' && Number.isFinite(args.max_rounds) && args.max_rounds >= 1
-    ? Math.floor(args.max_rounds)
-    : injected.maxRounds
-  const maxTokens = typeof args.max_tokens === 'number' && Number.isFinite(args.max_tokens) && args.max_tokens >= 1000
-    ? Math.floor(args.max_tokens)
-    : injected.maxTokens
+  /*
+   * 预算参数解析（2026-09-24 · 用户要求「0 表示不限制」）。
+   *
+   * 旧写法是 `>= 1` / `>= 1000`：**0 会被静默丢弃**并回落到设置页默认值 ——
+   * 主持人按用户说的传了 `max_rounds: 0`，会议却按 10 轮建起来，且**没有任何信号**。
+   * 这是比"0 立即闭麦"更坏的一类：用户的要求被无声改写。
+   * 现在：非负整数一律接受（0 = 不限制）；只有**负数/非数**才回落，且负数是显式报错
+   * —— 因为它几乎必然是笔误（上限不能为负），静默回落会让笔误也变成"看起来成功"。
+   */
+  const maxRounds = parseBudgetArg(args.max_rounds, 'max_rounds') ?? injected.maxRounds
+  const maxTokens = parseBudgetArg(args.max_tokens, 'max_tokens') ?? injected.maxTokens
   return {
     mode: normalizeMode(args.mode, injected.mode),
     maxRounds,
     maxTokens,
     skillDelivery: normalizeSkillDelivery(args.skill_delivery, injected.skillDelivery),
   }
+}
+
+/**
+ * 解析一条预算参数：`undefined`/缺省 ⇒ 回落（返回 undefined）；非负整数 ⇒ 接受；
+ * 负数或非有限数 ⇒ **抛错**（不静默回落，否则用户的笔误被伪装成成功）。
+ */
+function parseBudgetArg(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`roundtable: ${label} must be a finite integer (0 = unlimited); got ${JSON.stringify(value)}`)
+  }
+  if (value < 0) {
+    throw new Error(`roundtable: ${label} must not be negative (0 = unlimited); got ${value}`)
+  }
+  return Math.floor(value)
 }
 
 /** 渲染一张设置卡片的正文（放 `AskUserQuestionItem.detail`）。
@@ -423,8 +453,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         enum: ['orchestrated', 'egalitarian', 'redteam'],
         description: `Collaboration mode. Defaults to "${config.defaultMode}". "orchestrated" = captain relays everything; "egalitarian" = experts debate peer-to-peer under a budget (use max_rounds/max_tokens to bound it); "redteam" = 针锋相对评审 of a settled plan (experts attack the plan).`,
       },
-      max_rounds: { type: 'integer', description: `Debate round cap (default ${DEFAULT_MAX_ROUNDS}); exceeding it mutes the meeting.` },
-      max_tokens: { type: 'integer', description: `Total token budget for the meeting transcript (default ${DEFAULT_MAX_TOKENS}); exceeding it mutes the meeting.` },
+      max_rounds: { type: 'integer', description: `Debate round cap (default ${DEFAULT_MAX_ROUNDS}); exceeding it mutes the meeting. 0 = UNLIMITED (never mutes on rounds).` },
+      max_tokens: { type: 'integer', description: `Total token budget for the meeting transcript (default ${DEFAULT_MAX_TOKENS}); exceeding it mutes the meeting. 0 = UNLIMITED (never mutes on tokens).` },
       kb_path: { type: 'string', description: '知识库目录（可选）：主持人按需读取其中文件并转交专家。相对路径按工作区解析。' },
       skills: {
         type: 'array',
@@ -438,6 +468,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       },
       boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。' },
       boundary_done: { type: 'string', description: '判定「已解决」的标准。' },
+      boundary_check: { type: 'string', description: '怎么检查才算达标（命令 / 字节比对 / 审计态）。absorbed from P10: 成功标准须可量化 —— 写不出检查方式的标准多半不可判定。' },
       boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（防拆东墙的判据）。' },
       user_directive: { type: 'string', description: '用户未加工的原始指令（逐字摘录，非转述）；会议每轮对照它防偏离。' },
       skip_plan_card: {
@@ -463,7 +494,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `RoundTable meeting "${value.meeting_name}" created (id ${value.meeting_id}, mode ${value.mode}, budget ${value.max_rounds} rounds / ${value.max_tokens} tokens, kb ${value.kb_path === '' ? 'none' : value.kb_path}, skills ${value.skills.length === 0 ? 'none' : value.skills.join(', ')} via ${value.skill_delivery}). You are the captain. Add expert nodes with roundtable_add_node.`
+        text: `RoundTable meeting "${value.meeting_name}" created (id ${value.meeting_id}, mode ${value.mode}, budget ${budgetLimitText(Number(value.max_rounds))} rounds / ${budgetLimitText(Number(value.max_tokens))} tokens, kb ${value.kb_path === '' ? 'none' : value.kb_path}, skills ${value.skills.length === 0 ? 'none' : value.skills.join(', ')} via ${value.skill_delivery}). You are the captain. Add expert nodes with roundtable_add_node.`
           + (value.plan_card_skipped
             ? ' ⚠ plan card SKIPPED (planCardSkipped recorded) — the user never confirmed this meeting\'s roster/budget through roundtable_plan_meeting.'
             : ''),
@@ -496,11 +527,12 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       /* 边界声明（2026-09-23）：与 plan_meeting 同一折法（三项全空 = 未声明）。 */
       const cGoal = String(args.boundary_goal ?? '').trim()
       const cDone = String(args.boundary_done ?? '').trim()
+      const cCheck = String(args.boundary_check ?? '').trim()
       const cNot = String(args.boundary_not_doing ?? '').trim()
       const cDirective = String(args.user_directive ?? '').trim()
-      const boundary = (cGoal === '' && cDone === '' && cNot === '')
+      const boundary = (cGoal === '' && cDone === '' && cCheck === '' && cNot === '')
         ? undefined
-        : { goal: cGoal, done: cDone, notDoing: cNot }
+        : { goal: cGoal, done: cDone, check: cCheck, notDoing: cNot }
       if (!skipPlanCard) {
         const approved = await hasPlanCardApproval(stateRoot, captain.id, meetingName)
         if (!approved) {
@@ -580,6 +612,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
        */
       boundary_goal: { type: 'string', description: '要解决的具体现象（用户视角）。填不出就说明边界不清 —— 先回问用户，不要带着模糊目标开会。' },
       boundary_done: { type: 'string', description: '判定「已解决」的标准：什么情况下算完成。' },
+      boundary_check: { type: 'string', description: '怎么检查才算达标（命令 / 字节比对 / 审计态）。写不出检查方式的标准多半不可判定 —— 这一项是 P10「成功标准须可量化」的落点。' },
       boundary_not_doing: { type: 'string', description: '明确不做 / 不许动的范围（= 不许拆的那面墙）。会议全程与每次改动都要对照它自检有没有把别处弄坏。' },
       /**
        * 用户原话（2026-09-23 · 用户要求「以用户的会话指令为核心，绝对要避免偏离用户指令」）。
@@ -602,8 +635,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           },
         },
       },
-      max_rounds: { type: 'integer', description: '轮数上限；缺省用设置页默认值。' },
-      max_tokens: { type: 'integer', description: 'Token 预算；缺省用设置页默认值。' },
+      max_rounds: { type: 'integer', description: '轮数上限；0 = 不限制（该轴永不闭麦）；缺省用设置页默认值。' },
+      max_tokens: { type: 'integer', description: 'Token 预算；0 = 不限制（该轴永不闭麦）；缺省用设置页默认值。' },
       kb_path: { type: 'string', description: '知识库目录（可空）。' },
       skills: { type: 'array', items: { type: 'string' }, description: '选中 skill 的名称清单（可空）。' },
       skill_delivery: { type: 'string', enum: ['relay', 'direct'], description: 'skill 传递方式；缺省用设置页默认值。' },
@@ -629,7 +662,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       render: (_args, value) => [{
         type: 'text',
         text: value.decision === 'approved'
-          ? `用户已确认会议设置：创建 "${value.name}"（${value.mode}，${value.max_rounds} 轮 / ${value.max_tokens} tokens，kb ${value.kb_path === '' ? '未设置' : value.kb_path}，skills ${value.skills.length === 0 ? '未选' : value.skills.join(', ')}，skill 传递 ${value.skill_delivery}）。请用 roundtable_create 按这些值创建会议，然后逐个 roundtable_add_node。`
+          ? `用户已确认会议设置：创建 "${value.name}"（${value.mode}，${budgetLimitText(Number(value.max_rounds))} 轮 / ${budgetLimitText(Number(value.max_tokens))} tokens，kb ${value.kb_path === '' ? '未设置' : value.kb_path}，skills ${value.skills.length === 0 ? '未选' : value.skills.join(', ')}，skill 传递 ${value.skill_delivery}）。请用 roundtable_create 按这些值创建会议，然后逐个 roundtable_add_node。`
           : value.decision === 'revise'
             ? `用户要求修改：${value.user_note}\n请据此更新草案（保持未改动的项原样），再次调用 roundtable_plan_meeting 让用户确认；确认前不要创建会议。`
             : `设置卡片未能取得用户答复（userQuestions 服务不可用或被中止）${value.user_note === '' ? '' : `：${value.user_note}`}。请把草案内容用文字告知用户，取得明确同意后再调用 roundtable_create。`,
@@ -648,11 +681,12 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
        * 强制会逼出凑数文字，而卡片上的显式警示 + 用户核对才是真正的闸。 */
       const bGoal = String(args.boundary_goal ?? '').trim()
       const bDone = String(args.boundary_done ?? '').trim()
+      const bCheck = String(args.boundary_check ?? '').trim()
       const bNot = String(args.boundary_not_doing ?? '').trim()
       const directive = String(args.user_directive ?? '').trim()
-      const boundary = (bGoal === '' && bDone === '' && bNot === '')
+      const boundary = (bGoal === '' && bDone === '' && bCheck === '' && bNot === '')
         ? undefined
-        : { goal: bGoal, done: bDone, notDoing: bNot }
+        : { goal: bGoal, done: bDone, check: bCheck, notDoing: bNot }
       const experts = Array.isArray(args.experts)
         ? (args.experts as unknown[]).flatMap((raw) => {
             const entry = raw as { key?: unknown; role?: unknown; preset?: unknown; provider?: unknown; model?: unknown; reasoning_effort?: unknown }
@@ -1095,6 +1129,20 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
              *   让缺口**可见**，由主持人/人决定是否追问。
              */
             regression_risk: { type: 'string', description: '这条工作**可能碰坏什么**（既有行为/文件/判据），以及打算怎么确认没碰坏。做了改动的项应当填；纯读取/勘察类可留空（留空会被 round_signals 列为"未自检"）。' },
+            /**
+             * P5 文件面（2026-09-25）：本项打算碰哪些文件。
+             *
+             * 用途是**同波次并发写冲突的可见面**：两席在同一波碰同一文件时，后写者
+             * 会静默覆盖先写者（树里不留冲突标记），而宿主对子代理结构性不留痕
+             * ⇒ 事后无从发现。声明后 `round_signals` 会报出重叠项对，提示用
+             * `depends_on` 把写操作串行化（读仍可并行）。
+             * 只呈现不判定：不做路径规范化/glob 展开（猜出来的等价路径会造假红）。
+             */
+            files: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '本项会碰的文件路径（可给 glob）。同一波次内与他人重叠时 round_signals 会报出重叠项对——那是"该用 depends_on 串行"的信号，不是硬门。',
+            },
           },
         },
       },
@@ -1107,6 +1155,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         properties: {
           round: { type: 'integer', required: true, description: 'The new current round number.' },
           max_rounds: { type: 'integer', required: true },
+          max_rounds_text: { type: 'string', required: true, description: '轮数用量文本；不限制时为 `N/∞`。' },
           status: { type: 'string', required: true },
           muted_axis: { type: 'string', description: 'Empty when active; "rounds" | "tokens" when this advance muted the meeting.' },
           plan_items: { type: 'integer', required: true, description: '本轮计划条目数（0 = 单席会议免计划）。' },
@@ -1118,8 +1167,8 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         type: 'text',
         text: [
           value.muted_axis === ''
-            ? `Round ${value.round}/${value.max_rounds} started.`
-            : `Round ${value.round}/${value.max_rounds} — meeting is now MUTED (${value.muted_axis} exceeded). Top up with roundtable_set_budget or close it.`,
+            ? `Round ${value.round} started (${value.max_rounds_text} rounds).`
+            : `Round ${value.round} — meeting is now MUTED (${value.muted_axis} exceeded). Top up with roundtable_set_budget or close it.`,
           value.plan_items === 0
             ? 'No dispatch plan (single-live-seat meeting: there is no parallel/serial question to answer).'
             : `Dispatch plan recorded (${value.plan_items} item(s)):\n${value.waves}`,
@@ -1157,6 +1206,9 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
             rosterKeys: liveNodes.map((node) => node.key),
             presets: presets.map((preset) => ({ id: preset.id, name: preset.name, role: preset.role })),
             onStagePresetIds: presetLinkedSeatIds(fresh.nodes),
+            // P4′：把本会议的「不许动」那面墙带进计划校验面 —— 此前 dispatch.ts
+            // 全文 0 次引用 boundary，"这条会碰墙吗"全靠自觉。这里只传递与呈现。
+            boundaryNotDoing: fresh.boundary?.notDoing ?? '',
           })
           if (!check.ok) throw new Error(`roundtable: invalid dispatch plan — ${check.error}`)
           report = check.report
@@ -1179,6 +1231,7 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         return {
           round: fresh.round,
           max_rounds: fresh.budget.maxRounds,
+          max_rounds_text: budgetAxisText(fresh.budget.maxRounds, fresh.round),
           status: fresh.status,
           muted_axis: exceeded ?? '',
           plan_items: items.length,
@@ -1206,11 +1259,12 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           round: { type: 'integer', required: true },
           tokens_used: { type: 'integer', required: true },
           budget_remaining_tokens: { type: 'integer', required: true },
+          budget_unlimited: { type: 'boolean', required: true },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Contribution recorded (id ${value.utterance_id}, round ${value.round}); meeting token budget remaining ${value.budget_remaining_tokens}.`,
+        text: `Contribution recorded (id ${value.utterance_id}, round ${value.round}); meeting token budget remaining ${value.budget_unlimited ? 'unlimited' : value.budget_remaining_tokens}.`,
       }],
     },
     async execute(args, exec) {
@@ -1228,11 +1282,14 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         }
         const kind = (args.kind ?? 'speech') as 'speech' | 'proxy-thinking' | 'retrieval'
         const utterance = await recordUtterance(stateRoot, meeting, { nodeKey: speaker, kind, content, to: to === '' ? undefined : to })
+        // 不限制时不报"剩余"（那会是个负数或荒谬的大数，两种都是假读数）；显式给布尔，别让消费者猜。
+        const unlimited = budgetUnlimited(meeting.budget.maxTokens)
         return {
           utterance_id: utterance.id,
           round: utterance.round,
           tokens_used: estimateTokens(content),
-          budget_remaining_tokens: Math.max(0, meeting.budget.maxTokens - meeting.budget.usedTokens),
+          budget_remaining_tokens: unlimited ? 0 : Math.max(0, meeting.budget.maxTokens - meeting.budget.usedTokens),
+          budget_unlimited: unlimited,
         }
       })
       return recorded
@@ -1559,11 +1616,12 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
         plan_card_skipped: meeting.planCardSkipped === true,
         /* 边界声明（2026-09-23）：进每轮信息面，使"不许动什么"在会议全程可查。 */
         boundary: meeting.boundary === undefined
-          ? { declared: false, goal: '', done: '', not_doing: '' }
+          ? { declared: false, goal: '', done: '', check: '', not_doing: '' }
           : {
               declared: true,
               goal: meeting.boundary.goal,
               done: meeting.boundary.done,
+              check: meeting.boundary.check,
               not_doing: meeting.boundary.notDoing,
             },
         /* 用户原话（2026-09-23）：每轮必现，供主持人对照"还在解用户问的那个问题吗"。 */
@@ -2027,10 +2085,10 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
 
   ctx.tools.register(defineTool({
     name: 'roundtable_set_budget',
-    description: 'Adjust the meeting budget. Top up max_rounds/max_tokens to unmute (闭麦后恢复) a muted meeting, or tighten them. Requires the captain.',
+    description: 'Adjust the meeting budget. Top up max_rounds/max_tokens to unmute (闭麦后恢复) a muted meeting, or tighten them. Pass 0 to make an axis UNLIMITED (never mutes on it). Sending 0 to an unlimited axis is a no-op, not an error. Requires the captain.',
     parameters: {
-      max_rounds: { type: 'integer', description: 'New round cap.' },
-      max_tokens: { type: 'integer', description: 'New total token budget.' },
+      max_rounds: { type: 'integer', description: 'New round cap; 0 = unlimited (this axis never mutes).' },
+      max_tokens: { type: 'integer', description: 'New total token budget; 0 = unlimited (this axis never mutes).' },
     },
     output: {
       schema: {
@@ -2040,11 +2098,13 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
           status: { type: 'string', required: true },
           max_rounds: { type: 'integer', required: true },
           max_tokens: { type: 'integer', required: true },
+          max_rounds_text: { type: 'string', required: true },
+          max_tokens_text: { type: 'string', required: true },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Budget updated: ${value.max_rounds} rounds / ${value.max_tokens} tokens (meeting status ${value.status}).`,
+        text: `Budget updated: ${value.max_rounds_text} rounds / ${value.max_tokens_text} tokens (meeting status ${value.status}).`,
       }],
     },
     async execute(args, exec) {
@@ -2052,15 +2112,27 @@ export function registerRoundTableTools(ctx: Context, config: ToolsConfig): void
       const stateRoot = stateRootOf(workspaceOf(captain), config.stateDir)
       const located = await locateCaptainMeeting(stateRoot, captain.id)
       return withCaptainLock(stateRoot, located.id, captain.id, 'change the budget', async (fresh) => {
-        if (typeof args.max_rounds === 'number') fresh.budget.maxRounds = Math.floor(args.max_rounds)
-        if (typeof args.max_tokens === 'number') fresh.budget.maxTokens = Math.floor(args.max_tokens)
-        if (fresh.status === 'muted') {
-          if (fresh.round < fresh.budget.maxRounds && fresh.budget.usedTokens < fresh.budget.maxTokens) {
-            fresh.status = 'active'
-          }
+        /*
+         * 0 = 不限制（2026-09-24）。解析走与 create 同一个函数 ⇒ 负数显式报错、
+         * 缺省不动、非负整数一律写入。**注意旧写法 `round < maxRounds` 在 0 时会
+         * 判成"仍在超限"**，所以解麦判据必须改用 budgetExceeded（唯一判定者）。
+         */
+        const nextRounds = parseBudgetArg(args.max_rounds, 'max_rounds')
+        const nextTokens = parseBudgetArg(args.max_tokens, 'max_tokens')
+        if (nextRounds !== undefined) fresh.budget.maxRounds = nextRounds
+        if (nextTokens !== undefined) fresh.budget.maxTokens = nextTokens
+        // 解麦：只看"现在还有没有轴超限"（0 的轴恒不超限，故补 0 也能解麦）。
+        if (fresh.status === 'muted' && budgetExceeded(fresh) === undefined) {
+          fresh.status = 'active'
         }
         await writeMeeting(stateRoot, fresh)
-        return { status: fresh.status, max_rounds: fresh.budget.maxRounds, max_tokens: fresh.budget.maxTokens }
+        return {
+          status: fresh.status,
+          max_rounds: fresh.budget.maxRounds,
+          max_tokens: fresh.budget.maxTokens,
+          max_rounds_text: budgetAxisText(fresh.budget.maxRounds, fresh.round),
+          max_tokens_text: budgetAxisText(fresh.budget.maxTokens, fresh.budget.usedTokens),
+        }
       })
     },
   }))
@@ -2331,10 +2403,16 @@ function renderStatus(value: Record<string, unknown>): string {
         return ['⚠ boundary: NOT declared — if the user\'s request was vague, ask them to pin down goal / done-standard / what NOT to touch BEFORE dispatching. Do not paraphrase for them.']
       }
       const nn = String(b.not_doing ?? '')
+      const cc = String(b.check ?? '')
+      const dd = String(b.done ?? '')
       return [
         `Boundary — goal: ${String(b.goal ?? '') === '' ? '(unset)' : String(b.goal)}`,
-        `         done: ${String(b.done ?? '') === '' ? '(unset)' : String(b.done)}`,
+        `         done: ${dd === '' ? '(unset)' : dd}`,
+        `        check: ${cc === '' ? '(unset — no way to check, so "done" cannot be verified)' : cc}`,
         `    NOT doing: ${nn === '' ? '(unset — no wall declared, so nothing is protected)' : nn}`,
+        ...(dd !== '' && cc === ''
+          ? ['    ⚠ a done-standard is declared but NOT how to check it — write the check (command / byte compare / audit state), otherwise "done" is a claim nobody can verify.']
+          : []),
         ...(nn === '' ? [] : ['    ⚠ Any change must be checked against the NOT-doing line: name which wall it could hit and the evidence it did not.']),
       ]
     })(),
@@ -2348,7 +2426,8 @@ function renderStatus(value: Record<string, unknown>): string {
       return [`USER DIRECTIVE (verbatim — every round must still serve THIS): ${raw.length > 400 ? `${raw.slice(0, 400)}…` : raw}`]
     })(),
     `Knowledge base path: ${String(value.kb_path ?? '') === '' ? '(none)' : String(value.kb_path)}`,
-    `Budget: ${String(budget.used_rounds)}/${String(budget.max_rounds)} rounds, ${String(budget.used_tokens)}/${String(budget.max_tokens)} tokens (spoken-text estimate only — NOT the real LLM spend)`,
+    // 预算口径单一来源（2026-09-24）：不限制的轴渲染成 `N/∞`，绝不出现 `3/0`（那会被读成"越用越少"）。
+    `Budget: ${budgetAxisText(Number(budget.max_rounds), Number(budget.used_rounds))} rounds, ${budgetAxisText(Number(budget.max_tokens), Number(budget.used_tokens))} tokens (spoken-text estimate only — NOT the real LLM spend)`,
     `Nodes (${nodes.length}):`,
     ...nodes.map((node) => {
       const effort = String(node.reasoning_effort ?? '')
@@ -2431,6 +2510,27 @@ function renderStatus(value: Record<string, unknown>): string {
         ...((Array.isArray(signals.kind_unspecified) ? signals.kind_unspecified as string[] : []).length === 0
           ? []
           : [`    · kind unspecified: ${(signals.kind_unspecified as string[]).join(', ')} — if any of these produces a change, declare it kind:"change" so it gets an independent review`]),
+        /*
+         * P5（2026-09-25）：文件面与**同波次重叠**。
+         *
+         * 为什么这条要在派单面就报出来：同树并发下"两席同波次碰同一文件"是唯一会让
+         * 改动**静默消失**的形态（后写覆盖先写，树里不留冲突标记），而宿主对子代理
+         * 结构性不留痕（`dsh-workspace-changes` 对 `origin==='subagent'` 返回 undefined）。
+         * 事后无从发现 ⇒ 必须在派单时说。重叠非空 = 该用 `depends_on` 重排为串行。
+         */
+        `  files declared: ${String(signals.files_items ?? 0)}/${String(signals.plan_items ?? 0)} item(s)`,
+        ...((Array.isArray(signals.files_unspecified) ? signals.files_unspecified as string[] : []).length === 0
+          ? []
+          : [`    · files unspecified: ${(signals.files_unspecified as string[]).join(', ')} — if any of these will edit files, declare files:[...] so same-wave overlaps are visible BEFORE two seats overwrite each other in silence`]),
+        ...(Array.isArray(signals.file_overlaps) && (signals.file_overlaps as unknown[]).length > 0
+          ? [[
+            '    ⚠ same-wave file overlap — two seats editing the same file in ONE wave can silently overwrite each other (no conflict markers, and the host keeps no subagent change log):',
+            ...(signals.file_overlaps as { wave: number; files: string[]; items: string[] }[]).map(
+              (entry) => `      · wave ${String(entry.wave)}: ${entry.files.join(', ')} ← ${entry.items.join(' + ')}`,
+            ),
+            '      fix: give the later item depends_on:[<the earlier one>] so the writes become serial (reads may stay parallel).',
+          ].join('\n')]
+          : []),
       ] : []),
       ...(undispatchedOwners.length === 0 && unplannedDispatches.length === 0 ? [] : [
         `  plan vs actual dispatches: ⚠ undispatched owners [${undispatchedOwners.join(', ')}]; unplanned dispatches [${unplannedDispatches.join(', ')}]`,
@@ -2497,7 +2597,7 @@ function renderReviewMarkdown(review: ReviewRecord, meeting: Meeting): string {
     .filter((node) => node.status !== 'removed')
     .map((node) => `${node.key}（${node.provider ?? '-'}/${node.model ?? '-'}）`)
   out.push(`- **专家**：${expertRoutes.length === 0 ? '-' : expertRoutes.join('、')}`)
-  out.push(`- **预算用量**：${meeting.budget.usedRounds}/${meeting.budget.maxRounds} 轮 · ${meeting.budget.usedTokens}/${meeting.budget.maxTokens} token`)
+  out.push(`- **预算用量**：${budgetAxisText(meeting.budget.maxRounds, meeting.budget.usedRounds)} 轮 · ${budgetAxisText(meeting.budget.maxTokens, meeting.budget.usedTokens)} token`)
   out.push('---', '')
   out.push(renderReviewBody(review))
   return out.join('\n')
@@ -2579,7 +2679,7 @@ export function renderMeetingMarkdown(
   out.push(`- **状态**：${meeting.status}${running ? '（进行中快照）' : ''}`)
   out.push(`- **创建时间**：${formatStamp(meeting.createdAt)}`)
   out.push(`- **${running ? '最后更新' : '结束时间'}**：${formatStamp(meeting.updatedAt)}`)
-  out.push(`- **预算用量**：${meeting.budget.usedRounds}/${meeting.budget.maxRounds} 轮 · ${meeting.budget.usedTokens}/${meeting.budget.maxTokens} token`)
+  out.push(`- **预算用量**：${budgetAxisText(meeting.budget.maxRounds, meeting.budget.usedRounds)} 轮 · ${budgetAxisText(meeting.budget.maxTokens, meeting.budget.usedTokens)} token`)
   if ((meeting.kbPath ?? '') !== '') out.push(`- **知识库**：${meeting.kbPath}`)
   if ((meeting.skills ?? []).length > 0) {
     out.push(`- **skill**：${(meeting.skills ?? []).map((skill) => `\`${skill}\``).join('、')}（传递方式 ${meeting.skillDelivery ?? 'relay'}）`)
@@ -2598,6 +2698,7 @@ export function renderMeetingMarkdown(
     out.push('## 边界声明', '')
     out.push(`- **要解决的现象**：${meeting.boundary.goal.trim() === '' ? '（未声明）' : meeting.boundary.goal.trim()}`)
     out.push(`- **算解决的标准**：${meeting.boundary.done.trim() === '' ? '（未声明）' : meeting.boundary.done.trim()}`)
+    out.push(`- **怎么检查**：${meeting.boundary.check.trim() === '' ? '（未声明）' : meeting.boundary.check.trim()}`)
     out.push(`- **明确不做 / 不许动**：${meeting.boundary.notDoing.trim() === '' ? '（未声明）' : meeting.boundary.notDoing.trim()}`, '')
   }
 

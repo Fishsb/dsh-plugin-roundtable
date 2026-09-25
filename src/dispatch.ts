@@ -60,6 +60,13 @@ export interface PlanReport {
   gaps: PlanGap[]
   /** 计划点名的**在场席**（去重，保持出现顺序；不含 `new:` 缺口）。 */
   owners: string[]
+  /**
+   * P4′（2026-09-25）：本会议的「不许动」那面墙，原样带回供派单面渲染。
+   * 空串 = 未声明（此时**不该**放行写操作，由调用方决定怎么提示）。
+   */
+  boundaryNotDoing: string
+  /** P5：同波次内文件面重叠的项对（非空 ⇒ 应重排为串行）。 */
+  fileOverlaps: { wave: number; files: string[]; items: string[] }[]
 }
 
 /** 校验结果：通过给报告，不通过给**可读原因**（调用方据此报错）。 */
@@ -75,6 +82,18 @@ export interface PlanContext {
   presets: readonly { id: string; name: string; role?: string }[]
   /** 已在场的节点（用于判缺口是否已补：按 `presetId` 关联）。 */
   onStagePresetIds?: readonly string[]
+  /**
+   * P4′（2026-09-25）：本会议的「不许动」那面墙（`boundary_not_doing`）。
+   *
+   * 为什么进计划面：边界声明此前**只活在总纲文案里**（`dispatch.ts` 全文 0 次
+   * 引用 boundary），于是"这条改动会碰墙吗"全靠人和模型自觉。写操作实际发生在
+   * **工具调用**面，但**派单**是主持人做决定的时刻 —— 在这里让墙可见，能把
+   * "越界"从"事后发现"提前到"派单时就知道"。
+   *
+   * 语义边界：本字段**只用于呈现与提醒**，不做成硬门（机器判不了某条任务是否
+   * 真会碰墙；按关键词匹配墙文本是脆弱启发式）。缺口可见，判由人做。
+   */
+  boundaryNotDoing?: string
 }
 
 /** `new:` 前缀：把工作项承接席指向"尚不存在、需本轮新拉的预设"。 */
@@ -101,6 +120,8 @@ export function requiresDispatchPlan(liveSeatCount: number, planItemCount: numbe
 /** 一条计划项的 id/task 长度上限（防止把整段需求书塞进 id）。 */
 const MAX_ID_CHARS = 60
 const MAX_TASK_CHARS = 400
+/** 文件路径上限（P5）：比 id 宽 —— 真实仓库路径常超 60 字符。 */
+const MAX_PATH_CHARS = 260
 const MAX_ITEMS = 40
 
 /** 解析承接席写法：在场席 key 或 `new:<预设 id>`。 */
@@ -137,6 +158,14 @@ export function normalizePlanItems(raw: unknown): RoundPlanItem[] {
     // 任务类型（2026-09-23）：只接受三个已知值，其余折成"未声明"（不拦、但可辨）。
     const kindRaw = String(candidate.kind ?? candidate.item_kind ?? '').trim()
     const kind = kindRaw === 'change' || kindRaw === 'review' || kindRaw === 'survey' ? kindRaw : ''
+    // 文件面（P5，2026-09-25）：同上——显式空数组与缺省**同义**（都算"未声明"），
+    // 免得"填了空清单"被当成声明过文件面。
+    const filesRaw = candidate.files ?? candidate.file_paths
+    const files = Array.isArray(filesRaw)
+      ? filesRaw
+          .map((entry) => String(entry ?? '').trim().slice(0, MAX_PATH_CHARS))
+          .filter((entry) => entry !== '')
+      : []
     return [{
       id,
       task,
@@ -144,6 +173,7 @@ export function normalizePlanItems(raw: unknown): RoundPlanItem[] {
       dependsOn,
       ...(kind === '' ? {} : { kind: kind as 'change' | 'review' | 'survey' }),
       ...(regressionRisk === '' ? {} : { regressionRisk }),
+      ...(files.length === 0 ? {} : { files }),
     }]
   })
 }
@@ -299,7 +329,18 @@ export function validateRoundPlan(
     }
   }
 
-  return { ok: true, report: { waves: planWaves(items), gaps, owners } }
+  return {
+    ok: true,
+    report: {
+      waves: planWaves(items),
+      gaps,
+      owners,
+      // P4′：把墙原样带到派单面（只呈现，不判定"某条是否碰墙"——机器判不了）。
+      boundaryNotDoing: (context.boundaryNotDoing ?? '').trim(),
+      // P5：同波次文件面重叠（写串行的机器可见面）。
+      fileOverlaps: collectWaveFileOverlaps(items),
+    },
+  }
 }
 
 /** 依赖成环检测（Kahn）：返回剩余环上的 id 链，无环返回 undefined。 */
@@ -727,6 +768,12 @@ export function buildRoundSignals(input: RoundSignalsInput): {
   change_uncovered: string[]
   /** 未声明 `kind` 的项 id（只报不拦）。 */
   kind_unspecified: string[]
+  /** P5：声明了文件面的项数。 */
+  files_items: number
+  /** P5：未声明文件面的项 id（只报不拦；只读勘察项天然没有）。 */
+  files_unspecified: string[]
+  /** P5：同波次内文件面重叠的项对（非空 ⇒ 该重排为串行）。 */
+  file_overlaps: { wave: number; files: string[]; items: string[] }[]
 } {
   const { round, plan, liveSeatKeys, utterances } = input  // 计划承接席（席位口径）：
   //  - `owner` 是裸席位 key ⇒ 原样进集；
@@ -881,5 +928,70 @@ export function buildRoundSignals(input: RoundSignalsInput): {
     kind_unspecified: plan === undefined
       ? [] as string[]
       : plan.items.filter((item) => item.kind === undefined).map((item) => item.id),
+    /*
+     * P5（2026-09-25）：文件面与**同波次重叠**。
+     *
+     * 为什么这是本组最重的信号：同树并发下"两席在同一波次碰同一文件"是唯一
+     * 会让改动**静默消失**的形态（后写者覆盖先写者，且树里不留冲突标记）。
+     * 现状宿主对子代理**结构性不留痕**（`dsh-workspace-changes` 对
+     * `origin === 'subagent'` 返回 undefined），所以这个重叠若不说出来，
+     * 事后没有任何东西能让人发现它发生过。
+     *
+     * ⚠ 仍然只呈现不判定：路径写法（相对/绝对/glob）由主持人给，本模块不做
+     *   规范化推断（那会造出"看着重叠其实没有"的假红）。同字符串才算重叠。
+     *   真要串行时用 `dependsOn` 把后者推到下一波 —— 这里给的是"该不该推"的可见面。
+     */
+    files_items: plan === undefined ? 0 : plan.items.filter((item) => (item.files ?? []).length > 0).length,
+    /** 未声明文件面的项 id（缺口可见；只读勘察项天然没有，不强制）。 */
+    files_unspecified: plan === undefined
+      ? [] as string[]
+      : plan.items.filter((item) => (item.files ?? []).length === 0).map((item) => item.id),
+    /**
+     * 同波次内文件面重叠的项对（`{wave, files, items}`）—— 空数组表示无重叠。
+     * 这是"写串行"判据的机器可见面：非空即提示主持人该用 `dependsOn` 重排。
+     */
+    file_overlaps: plan === undefined
+      ? [] as { wave: number; files: string[]; items: string[] }[]
+      : collectWaveFileOverlaps(plan.items),
   }
+}
+
+/**
+ * P5：算出**同一波次**内文件面重叠的项对。
+ *
+ * 只比较同一波次的项：跨波次本就被 `depends_on` 排成先后，不构成并发写。
+ * 重叠判据是**字面相等**（刻意不做路径规范化/glob 展开 —— 那需要知道仓库根与
+ * 文件系统现状，本模块是纯函数，猜出来的"等价路径"会变成假红）。
+ */
+export function collectWaveFileOverlaps(
+  items: readonly RoundPlanItem[],
+): { wave: number; files: string[]; items: string[] }[] {
+  const waves = planWaves(items)
+  const overlaps: { wave: number; files: string[]; items: string[] }[] = []
+  for (const wave of waves) {
+    // `wave.items` 是该波项的**对象**列表（{id,task,owner}），据此取回计划项
+    const inWave = wave.items
+      .map((entry) => items.find((item) => item.id === entry.id))
+      .filter((item): item is RoundPlanItem => item !== undefined)
+    const byFile = new Map<string, string[]>()
+    for (const item of inWave) {
+      for (const file of item.files ?? []) {
+        const owners = byFile.get(file) ?? []
+        owners.push(item.id)
+        byFile.set(file, owners)
+      }
+    }
+    for (const [file, ids] of byFile) {
+      if (ids.length > 1) {
+        const existing = overlaps.find((entry) => entry.wave === wave.wave)
+        if (existing === undefined) {
+          overlaps.push({ wave: wave.wave, files: [file], items: [...ids] })
+        } else {
+          if (!existing.files.includes(file)) existing.files.push(file)
+          for (const id of ids) if (!existing.items.includes(id)) existing.items.push(id)
+        }
+      }
+    }
+  }
+  return overlaps
 }

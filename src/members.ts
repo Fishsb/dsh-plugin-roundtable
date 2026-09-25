@@ -18,6 +18,26 @@ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { Meeting, MeetingMode, MeetingNode, SkillDelivery } from './types.ts'
 import { ACTIVE_NODE_STATUSES, CAPTAIN_KEY } from './types.ts'
 
+/**
+ * 本插件注入消息的来源 kind（0.1.7 语义）。
+ *
+ * 0.1.5 的 `MessageSourceMap` 有一个共享的 catch-all `plugin` 成员；0.1.7 把它
+ * **删掉了**（`dsh-llm/lib/types/message.d.ts` 原话：*"each producer declares its
+ * own `kind` in its own module; there is no shared catch-all `plugin` kind"*）。
+ * 于是每个生产者自带一个 kind：`time-context` / `plan-mode` / `tool-registry`
+ * 都这么干，这里同样声明 `roundtable`。
+ *
+ * 运行时只要求 `source.kind` 是非空字符串（`dsh-session` 的 message 校验），
+ * 未知 kind 由消费者按约定 fall through —— 所以这条既过编译也过运行。
+ */
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    roundtable: {
+      kind: 'roundtable'
+    }
+  }
+}
+
 /** Runtime knobs for node spawning, resolved from plugin config. */
 export interface MemberRuntimeConfig {
   /** Registered `ctx.subagents` provider name (must support continuable + persona). */
@@ -53,15 +73,62 @@ const NODE_DENIED_TOOLS: readonly string[] = [
   // roundtable_speak 一条路，宿主结算通知负责唤醒主持人收料。
   // 会议内路由走插件自己的 roundtable_send_message，不受此项影响。
   'send_message',
+  /*
+   * P6（2026-09-25）：allow 白名单恒下发后，**收窄非执行面**——这些是 relay
+   * 模式下原先顺带继承的宿主能力，与「专家做本职工作」无关，且其中
+   * `dev_*` 可运行时注入任意插件到宿主进程（等价任意代码执行）。
+   * ⚠ 执行面（write / edit / str_replace_editor / pwsh / bash）**刻意不在此列**：
+   * 专家的本职就是落地执行，收掉 shell 等于把需求本身挡掉。
+   * 名字由宿主拥有，未注册的项会被 isRegistered 过滤掉，不会导致 spawn 失败。
+   */
+  'dev_inject_plugin',
+  'dev_uninject_plugin',
+  'dev_reload_package',
+  'dev_reload_preset',
+  'dev_injected_list',
+  'dev_install_package',
+  'dev_plugin_status',
+  'dev_clear_routes',
+  'dev_fix_patch',
+  'dev_heal_links',
+  'dev_self_test',
+  'dev_scaffold_plugin',
+  'dev_build_plugin',
+  'dev_release_plugin',
+  'dev_stage_add',
+  'dev_stage_call',
+  'dev_stage_list',
+  'dev_stage_promote',
+  'dev_stage_demote',
+  'nav_commit',
+  'nav_decide',
+  'nav_graph',
+  'nav_node',
+  'nav_set',
+  'present',
 ]
+/*
+ * ⚠ 刻意**不**放进 NODE_DENIED_TOOLS 的两个名字：
+ *  · `roundtable_summarize` —— 它的可见性按模式分叉（单线制 deny、圆桌制保留），
+ *    由 nodeToolRestriction 内部条件拼接；写死在这里会把圆桌制一起挡掉。
+ *  · `roundtable_status` —— 专家要靠它查自己的轮次/预算/名册，是本职必需。
+ */
 
 /**
- * 专家节点在 direct 模式下可以保留的工具白名单。
+ * 专家节点的工具白名单 —— **全模式生效**（P6，2026-09-25）。
  *
- * `allow` 的语义是"只有列出的全局工具保持可见"，因此这里必须列全专家
- * 真正需要的工具（文件/搜索/shell/技能/协作/自身管理）；一旦宿主改名，
- * 专家会失去该能力但**不会**因此获得额外权限 —— 这是刻意选择的失败方向。
- * `deny` 仍然保留（两者是与关系）：它保证将来有人从本清单里删掉某项时，
+ * 历史：本清单原先只在 `skill_delivery === 'direct'` 时才作为 `allow` 下发；
+ * relay 模式下只发 `deny`，而宿主语义是"不传 allow = 不做可见性过滤"
+ * （`dsh-tools` 的 `ToolRestriction.allow`: "Global tool names that stay
+ * visible; everything else is removed"）⇒ **写权限是由一个纯省 token 的开关
+ * 派生的副作用**，不是任何人显式的授权。实测后果：relay 模式下专家继承主持人
+ * 的**近乎全量**工具面（含 `dev_*` 注入器、`nav_*` 等），而 28 条 role 里
+ * 没有一条授权过"动手改工作区" —— 能力与文案两套真相。
+ *
+ * 现在：allow 恒下发，工具面成为**单一真源**；`skill_delivery` 只决定要不要把
+ * `skill` 加载器留给专家（relay 模式下正文由主持人中转，专家不需要也不应自取）。
+ *
+ * `deny` 仍然保留（与 allow 是与关系）：它保证将来有人从本清单里删掉某项时，
  * 主持人专属工具不会顺带被放开。
  */
 const NODE_ALLOWED_TOOLS: readonly string[] = [
@@ -98,9 +165,14 @@ const NODE_ALLOWED_TOOLS: readonly string[] = [
   'skill',
 ]
 
-/** The node's tool restriction: deny captain-only tools, and — in direct
- *  skill-delivery mode — narrow the surface to the explicit expert allowlist
- *  so the host's `skill` loader is reachable from a node.
+/** The node's tool restriction: deny captain-only tools and pin the expert
+ *  surface to the explicit allowlist — **in every mode** (P6, 2026-09-25).
+ *
+ *  为什么改为全模式：allow 不下发时宿主不做过滤（"不传 allow = 不做可见性过滤"），
+ *  于是 relay 下专家的写权限来自"未被 deny"这一副作用，工具面随 `skill_delivery`
+ *  这个省 token 的开关漂移，且会顺带继承 `dev_*` 等宿主能力。改为恒下发后，
+ *  工具面有了唯一真源，`skill_delivery` 只决定 `skill` 加载器是否留给专家：
+ *  relay = 正文由主持人中转，专家自己调等于绕过中转（也省掉一次误用）。
  *
  *  三模式语义（2026-09-19）：单线制（orchestrated / redteam）下专家互不披露，
  *  故 `roundtable_summarize`（返回全场逐人纪要）在工具面直接 deny —— 只改提示词
@@ -110,7 +182,12 @@ const NODE_ALLOWED_TOOLS: readonly string[] = [
  *  tool names are host-owned (a composition without `bash`/`str_replace_editor`
  *  is normal). The allowlist above is therefore a HOST-AGNOSTIC WISH LIST: pass
  *  `isRegistered` to drop the entries this host does not actually expose, or
- *  node spawn fails outright with "unknown global tools". */
+ *  node spawn fails outright with "unknown global tools".
+ *
+ *  ⚠ 空 allow 的静默残废（P6 验收项）：若 `isRegistered` 把清单滤空（例如宿主
+ *  改了实名而本清单未同步），节点会拿到"一个工具都没有"的残废席位而**不报错**。
+ *  这是刻意选择的失败方向（宁可少权不可多权），但必须**可见** ——
+ *  `spawnNode` 会读 `restrictionDiagnostics()` 把它升级成显式告警。 */
 export function nodeToolRestriction(
   mode: MeetingMode = 'orchestrated',
   skillDelivery: SkillDelivery = 'relay',
@@ -121,10 +198,27 @@ export function nodeToolRestriction(
   const denied = mode === 'egalitarian'
     ? [...NODE_DENIED_TOOLS]
     : [...NODE_DENIED_TOOLS, 'roundtable_summarize']
-  if (skillDelivery === 'direct') {
-    return { allow: known(NODE_ALLOWED_TOOLS), deny: known(denied) }
+  // relay：skill 正文由主持人中转，专家自己取等于绕过中转 —— 从 allow 里摘掉。
+  // direct：保留 `skill`（R2.3 专家自行加载）。
+  const allowed = skillDelivery === 'direct'
+    ? NODE_ALLOWED_TOOLS
+    : NODE_ALLOWED_TOOLS.filter((name) => name !== 'skill')
+  return { allow: known(allowed), deny: known(denied) }
+}
+
+/** P6 验收面：把"过滤后还剩几个工具"变成可读诊断，供 spawnNode 判残废。 */
+export function restrictionDiagnostics(restriction: ToolRestriction): {
+  allowCount: number
+  denyCount: number
+  degraded: boolean
+} {
+  const allowCount = restriction.allow?.length ?? 0
+  return {
+    allowCount,
+    denyCount: restriction.deny?.length ?? 0,
+    // 0 = 专家一个工具都没有（见上方"空 allow 的静默残废"）
+    degraded: allowCount === 0,
   }
-  return { deny: known(denied) }
 }
 
 /** Per-expert answer limits resolved from settings at spawn time. */
@@ -288,6 +382,20 @@ export async function spawnNode(
   // str_replace_editor alias / the subagent-model lister (restrict() throws
   // "unknown global tools" for any name the host never registered).
   const isRegistered = (name: string): boolean => ctx.tools.get(name, captain) !== undefined
+  const toolFilter = nodeToolRestriction(meeting.mode, delivery, isRegistered)
+  // P6 验收：空 allow = 专家一个工具都没有的**残废席位**。这是刻意选择的失败
+  // 方向（宁可少权不可多权），但不能静默 —— 宿主改名而本清单未同步时，
+  // 只有把它升级成显式告警，主持人才能看出"这一席没工具"而不是以为它在偷懒。
+  const diag = restrictionDiagnostics(toolFilter)
+  if (diag.degraded) {
+    throw new Error(
+      `roundtable: 节点 "${node.key}" 的工具白名单被过滤为空（allowCount=0）—— `
+      + '宿主未注册清单中的任何工具名（多半是宿主改名而 NODE_ALLOWED_TOOLS 未同步）。'
+      + '按 P6 的失败方向这必须显式报错，而不是产出一个无工具可用的残废席位。'
+      + `已尝试注册表过滤（deny 剩 ${String(diag.denyCount)} 项）；`
+      + '请核对 src/members.ts 的 NODE_ALLOWED_TOOLS 与宿主实际工具实名。',
+    )
+  }
   const started = await ctx.subagents.startContinuable({
     provider: config.provider,
     label,
@@ -295,7 +403,7 @@ export async function spawnNode(
       prompt: [{ type: 'text', text: nodeWelcome(meeting, node) }] as ContentBlock[],
       parent: captain,
       persona: nodePersona(meeting, node, stateDir, limits, { ...skill, delivery, skillToolAvailable }),
-      toolFilter: nodeToolRestriction(meeting.mode, delivery, isRegistered),
+      toolFilter,
       ...(Object.keys(agentOptions).length > 0 ? { agentOptions } : {}),
       ...(config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {}),
     },
@@ -376,7 +484,7 @@ export function steerCaptain(captain: Agent, provenance: CaptainProvenance, body
   try {
     captain.steer(createUserMessage({
       content: [{ type: 'text', text: `${provenanceLabel(provenance)}\n\n${body}` }],
-      source: { kind: 'plugin', plugin: 'dsh-plugin-roundtable' },
+      source: { kind: 'roundtable' },
     }))
     return true
   } catch {
