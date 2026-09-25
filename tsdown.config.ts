@@ -106,6 +106,13 @@ const libConfig: UserConfig = {
   platform: 'node',
   target: 'es2024',
   dts: false,
+  /*
+   * 2026-09-25（T2）：宿主半边的 sourcemap **是产物守卫的判据载体**，不是调试便利。
+   * `sourcesContent` 把每个 src 文件的**当次构建字节**内嵌进 `lib/index.js.map`，
+   * 于是守卫可以问一个**时钟无关**的问题：「产物里的源码 == 磁盘上的源码吗？」——
+   * 而 mtime 问不出这个（tsc/tsdown 失败时照样重写产物 ⇒ mtime 恒新）。
+   */
+  sourcemap: true,
   // ⚠ 不能用 `clean: true`：tsdown 的 clean 是 glob 递归删 outDir 下**一切**，
   // 而 `lib/types/**` 是 `tsc --emitDeclarationOnly` 的产物、且 `lib/` 被 .gitignore
   // 忽略（删了不可从版本库恢复）。单跑 `bundle:client` 会静默把类型声明全部删掉，
