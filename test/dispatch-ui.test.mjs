@@ -13,9 +13,24 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { isAbsolute, join, relative } from 'node:path'
+import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { buildRoundSignals, onStagePresetEntries } from '../src/dispatch.ts'
+// 共享渲染目录的**唯一实现处**（三个渲染测试中已改走沙箱模块的那两处，产物落在哪由它决定）。
+import { RENDER_TMP_DIR } from './render-tmp-sandbox.mjs'
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * 纯函数：`dir` 是否**落在仓库根内**（跨盘、仓库根自身都判否）。
+ * 抽成纯函数是为了**两个方向都能断言** —— 判别力不靠"真实盘面恰好是对的"（见下面那条负控单元）。
+ */
+const isInsideRepo = (root, dir) => {
+  const rel = relative(root, dir)
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
 
 test('R-D-UI 10: the render test must stay runnable on a fresh clone (self-create its tmp dir)', () => {
   // 实测坑：渲染测试的转译产物目录被 .gitignore 忽略，全新克隆上并不存在。
@@ -24,7 +39,30 @@ test('R-D-UI 10: the render test must stay runnable on a fresh clone (self-creat
   const render = read('../test/dispatch-panel-render.test.mjs')
   assert.match(render, /mkdirSync\(TMP_DIR, \{ recursive: true \}\)/, '必须先自建目录（否则全新克隆全红）')
   assert.doesNotMatch(render, /from 'node:os'/, '不得用系统临时目录（解析不到本仓 react）')
-  assert.match(render, /new URL\('\.\/\.render-tmp\/', import\.meta\.url\)/, '产物目录必须落在仓库内')
+  assert.match(render, /\.render-tmp/, '必须仍指向共享渲染目录（不是另起一个目录）')
+  /*
+   * ⚠ 原断言在这里按**字面量**钉住 `new URL('./.render-tmp/', import.meta.url)`。它现在两头都不成立：
+   *   ① 锁死写法：等价的 `fileURLToPath(new URL('./.render-tmp/', import.meta.url))` 会被误红；
+   *   ② **射程没跟着实现走**：真正决定"产物落在哪"的那一行已集中到 `test/render-tmp-sandbox.mjs:46`，
+   *      而本门只读 dispatch-panel 一个文件 ⇒ 把沙箱模块改成 %TEMP% 后本门仍全绿，两个渲染测试全红。
+   *      （集中化会在不声不响中把守卫射程留在原地 —— 这正是本仓反复剿的"看着有门、其实没管到"。）
+   * 改成**运行时可判的不变量**：拿模块导出的真实路径判"是否落在仓库内"。
+   */
+  const sandbox = read('../test/render-tmp-sandbox.mjs')
+  assert.match(sandbox, /mkdirSync\(RENDER_TMP_DIR, \{ recursive: true \}\)/, '必须先自建目录（否则全新克隆全红）')
+  assert.doesNotMatch(sandbox, /from 'node:os'/, '不得用系统临时目录（解析不到本仓 react）')
+  assert.equal(
+    isInsideRepo(REPO_ROOT, RENDER_TMP_DIR),
+    true,
+    '产物目录必须落在仓库内 —— Node 从产物所在目录向上找本仓 node_modules，写 %TEMP% 会 '
+    + "Cannot find package 'react'（实测踩过）。实际解析为：" + RENDER_TMP_DIR,
+  )
+})
+
+test('R-D-UI 10b 负控：isInsideRepo 在"仓库内 / 系统临时目录 / 仓库根自身"三处给出不同结论', () => {
+  assert.equal(isInsideRepo(REPO_ROOT, join(REPO_ROOT, 'test', '.render-tmp')), true, '仓库内必须判是')
+  assert.equal(isInsideRepo(REPO_ROOT, tmpdir()), false, '系统临时目录必须判否（本仓踩过 Cannot find package react）')
+  assert.equal(isInsideRepo(REPO_ROOT, REPO_ROOT), false, '仓库根自身不算"落在仓库内"（那等于把产物写在仓库顶上）')
 })
 
 test('R-D-UI 9: charter must match the implementation on the egalitarian handoff protocol', () => {

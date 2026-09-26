@@ -35,7 +35,15 @@ const TMP_DIR = new URL('./.render-tmp/', import.meta.url).pathname.replace(/^\/
 mkdirSync(TMP_DIR, { recursive: true })
 
 async function loadTsx(absPath) {
-  const dir = mkdtempSync(join(TMP_DIR, 'run-'))
+  /*
+   * ⚠ 子目录名**必须**写成 `<pid>-<tag>-` 形态（与 `test/render-tmp-sandbox.mjs` 同一口径）：
+   * 共享父目录是对的（产物必须在仓库内），但**归属**只能靠 pid —— `node --test` 多进程并发时，
+   * 不带 pid 的目录名会让"这是残留还是别人的在途"不可判（本会话四席各自撞到同一处互数）。
+   * 另两处渲染测试已改走 `test/render-tmp-sandbox.mjs`；本文件保留原地写法是因为
+   * `test/dispatch-ui.test.mjs:27` 把这一行**字面量**当判据钉着（改它 = 同时改那条守卫，
+   * 属边界与异常席的处置面，不在本席这一刀里）。
+   */
+  const dir = mkdtempSync(join(TMP_DIR, process.pid + '-panel-'))
   // `import type ...` 在转译后仍会留在输出里，Node 解析不到 `.ts` 后缀，故先删掉
   // —— 本组件运行时不依赖任何被 import 的类型。
   const source = readFileSync(absPath, 'utf8').replace(/^import type .*$/gm, '')

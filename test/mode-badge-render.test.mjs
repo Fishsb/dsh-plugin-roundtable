@@ -12,17 +12,16 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-
-const TMP_DIR = new URL('./.render-tmp/', import.meta.url).pathname.replace(/^\//, '')
-mkdirSync(TMP_DIR, { recursive: true })
+// 共享父目录的归属与清理口径同 chat-composer 一份（见 test/render-tmp-sandbox.mjs）。
+import { makeRenderTmpDir } from './render-tmp-sandbox.mjs'
 
 /** 转译一个 TSX 文件；`import type` 行删掉（Node 解析不到 `.ts` 后缀）。 */
 async function loadTsx(absPath) {
-  const dir = mkdtempSync(join(TMP_DIR, 'badge-'))
+  const { dir, cleanup } = makeRenderTmpDir('badge')
   const source = readFileSync(absPath, 'utf8').replace(/^import type .*$/gm, '')
   const out = ts.transpileModule(source, {
     compilerOptions: {
@@ -41,7 +40,7 @@ async function loadTsx(absPath) {
   const file = join(dir, 'Badge.mjs')
   writeFileSync(file, out, 'utf8')
   const mod = await import(pathToFileURL(file).href)
-  return { mod, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+  return { mod, cleanup }
 }
 
 const BADGE = new URL('../src/client/ModeBadge.tsx', import.meta.url).pathname.replace(/^\//, '')
