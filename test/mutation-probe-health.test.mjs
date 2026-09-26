@@ -59,7 +59,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
 /*
  * node:crypto 是**无残留门扩到全量 src 的成本解**（2026-09-26 · T3 扩面）：
  * 37 个 `.ts`/`.tsx` 在 node 里算 git-blob-sha1 实测 **25 ms**，
@@ -113,6 +113,61 @@ function parseMutations(srcLf) {
   return out
 }
 
+/*
+ * ══ B 类污染归因分流（s3 · 2026-09-26）：把「读取期间被改动」与「锚点真的失配」分开 ═══════════
+ *
+ * ## 判因（本席 2026-09-26 只读取证 · 主持人核实后派单）
+ *
+ * 旧口径把两种**完全不同的因由**归成一句：
+ *
+ *     if (!disk.includes(from)) dead.push(id + ' (' + file + ')')
+ *     → 修法：把锚点更新到当前实现。
+ *
+ * 而本判据在**同一次执行里**对 37 个 `src/*.ts` 逐个 `readFileSync`（见 {@link RESIDUE_TARGETS}
+ * 的扩面注释）。写席在循环窗口内落一次盘 ⇒ 该文件读到的是**中间态** ⇒ 锚点找不到 ⇒ 落进 dead，
+ * 于是读者被告知「去把锚点更新到当前实现」—— 那是**指错对象**：锚点没坏，是**快照不一致**。
+ */
+/*
+ * ## 为什么用「二次读比对」而不是"加锁"（取舍，写清免得被当放宽）
+ *
+ *   · **加锁**要引入跨进程互斥（锁文件），而本仓的门是**纯读**的。
+ *   · **二次读**只多一次读取，且**只在锚点找不到时**才发生（正常路径零成本）。
+ *   · 判据**不松**：两支都**报红**，只是**归因与处置不同**。
+ *   · 窗口里有正向迹象：本文件本就在导入 `readdirSync`；`srcDigest` 用的正是"前后两次取 sha 再比"。
+ */
+/*
+ * ## ⚠ 已知边界（如实标注，别当成"读-写一致性已完全解决"）
+ *
+ *   · 两次读**都**落在写席的中间态里 ⇒ 仍会归成 dead。本判据**缩小**误归因面，**不消除**它。
+ *   · 它只判"该文件在两次读之间变没变"，**不判**是"谁"改的。
+ *   · **未覆盖**：跨文件快照不一致（A 读旧代、B 读新代，而两者各自内部一致）—— 登记在此。
+ *   · **窗口极小**：两次读之间只隔一次内存比对（微秒级）。故常态效果是**归因更准**。
+ */
+function classifyAnchorMiss(mutation, read) {
+  const firstBytes = read()
+  if (firstBytes.includes(mutation.from)) return null
+  const secondBytes = read()
+  const subject = mutation.id + ' (' + mutation.file + ')'
+  if (secondBytes !== firstBytes) {
+    return {
+      kind: 'transient',
+      why: '读取期间该文件被改动',
+      detail: '两次读取的字节**不同** ⇒ 这是并发窗口造成的**快照不一致**，不是"锚点过期"。'
+        + '**不要**去改锚点：先确认没有并发写入，然后重跑本门。',
+      evidence: '两次读取字节不同（' + firstBytes.length + ' → ' + secondBytes.length + ' 字节）',
+      subject,
+    }
+  }
+  return {
+    kind: 'dead',
+    why: '锚点与工作区文件不符',
+    detail: '两次读取的字节**相同** ⇒ 该文件在两次读之间没变过，锚点**真的**与它不符'
+      + '（探针静默失效、从来没在测东西）。修法：把锚点更新到当前实现。',
+    evidence: '两次读取字节相同（各 ' + firstBytes.length + ' 字节）',
+    subject,
+  }
+}
+
 const mutations = parseMutations(readLf('./mutate.mjs'))
 
 test('变异探针表可解析（解析失败会让本门变成空转的假绿 —— 首版实测踩过）', () => {
@@ -127,19 +182,34 @@ test('变异探针表可解析（解析失败会让本门变成空转的假绿 �
 test('锚点未失配：每条变异的 from 都能在当前工作区文件里找到（活锚点）', () => {
   assert.ok(mutations.length >= 25, '前提：解析必须非空') // 防空转，不依赖 test 1 的执行顺序
   const dead = []
+  const transient = []
   for (const m of mutations) {
     assert.ok(m.file !== undefined, `变异 ${m.id} 缺 file`)
     assert.ok(typeof m.from === 'string' && m.from !== '', `变异 ${m.id} 缺 from`)
     assert.ok(typeof m.to === 'string', `变异 ${m.id} 缺 to`)
     assert.ok(typeof m.expect === 'string' && m.expect !== '', `变异 ${m.id} 缺 expect`)
-    const disk = readLf(`../${m.file}`)
-    if (!disk.includes(m.from)) dead.push(`${m.id} (${m.file})`)
+    const verdict = classifyAnchorMiss(m, () => readLf(`../${m.file}`))
+    if (verdict === null) continue
+    const line = `${verdict.subject} —— ${verdict.why}：${verdict.detail}（证据：${verdict.evidence}）`
+    if (verdict.kind === 'transient') transient.push(line)
+    else dead.push(line)
   }
+  /*
+   * 两支**分开断言** —— 这是本修法的全部要点：即便两支同时非空，读者也能一眼看出
+   * 「哪几条是并发窗口、哪几条是真失配」，而不是拿到一句指向错误的处置。
+   */
   assert.deepEqual(
     dead,
     [],
-    `以下变异的锚点在工作区文件里找不到 ⇒ 该探针静默失效、从来没在测东西：${dead.join('、')}。`
-    + '修法：把锚点更新到当前实现。',
+    `以下变异的锚点在工作区文件里**真的**找不到（两次读字节相同 ⇒ 不是并发窗口）⇒ `
+    + `该探针静默失效、从来没在测东西：${dead.join('、')}。修法：把锚点更新到当前实现。`,
+  )
+  assert.deepEqual(
+    transient,
+    [],
+    `以下变异命中「**读取期间该文件被改动**」⇒ 两次读字节不同，属**快照不一致**（并发窗口），`
+    + `**不是"锚点过期"**：${transient.join('、')}。`
+    + '修法：确认没有并发写入后**重跑本门**；**不要**去改锚点。',
   )
 })
 
@@ -151,6 +221,175 @@ test('变异编号连续且唯一（编号重复会让 mutate.mjs 静默覆盖�
   for (let i = 0; i < sorted.length; i++) {
     assert.equal(sorted[i], i + 1, `编号不连续（缺 ${i + 1}）—— mutate.mjs 的编号是命令行入口，缺号即无法触达`)
   }
+})
+
+/*
+ * ══ 自证（s3 · 2026-09-26）：两条因由必须**真的分叉**，且门必须**真的调用**判据体 ════════════
+ *
+ * 为什么必须有这一组（否则本修法自己是**不可判**的）：判据体若恒返回同一支、
+ * 或门的循环里压根没调它，上面那条测试在干净树上**照样全绿** —— 那正是本仓反复剿的
+ * "空转断言"形态（h1/p2 实测过同型：调用被掏空而套件仍绿）。故这里**两条都钉**：
+ *   · ② 用**合成件**把两条因由各钉一次，且**不碰任何真实文件**（读取器是纯函数）；
+ *   · ③ 用**静态**检查钉住"接线"（防"只加函数不接线"—— 那份修复在盘上不生效）。
+ */
+test('归因分流自证：读-写污染 ⇒ 报"读取期间被改动"；同字节失配 ⇒ 报"锚点真的不符"（两者必须分叉）', () => {
+  const ANCHOR = 'const TARGET_LITERAL = 1'
+  const WITHOUT = '// 这个文件里没有那个锚点' + String.fromCharCode(10)
+  const WRITTEN = WITHOUT + ANCHOR + String.fromCharCode(10)
+  const synthetic = { id: 0, file: 'src/synthetic-not-on-disk.ts', from: ANCHOR }
+  // 前提：合成件的中间态里**不含**锚点（否则 ② 的第一次读就已经命中，形态不成立）
+  assert.ok(!WITHOUT.includes(ANCHOR), '前提：WITHOUT 不得包含锚点，否则 ② 的第一次读就不是"中间态"')
+
+  /*
+   * ① 绿色路径：锚点在 ⇒ 必须返回 null。这条同时是下面两条的**对照**：
+   *    同样的合成件，只有读取器变了 —— 若 ① 也非 null，说明本判据恒返回一个判定。
+   */
+  assert.equal(
+    classifyAnchorMiss(synthetic, () => WRITTEN),
+    null,
+    '锚点存在时必须返回 null —— 否则本判据恒红，下面两条的"分叉"就不是分流而是恒真',
+  )
+
+  /*
+   * ② 读-写污染：第一次读**不含**锚点（读到写席中间态），第二次读**含**（写入已落盘）。
+   *    这正是本轮要剿的形态，也正是旧口径把它归成"锚点过期"的那个输入。
+   */
+  let seen = 0
+  const polluted = classifyAnchorMiss(synthetic, () => (seen++ === 0 ? WITHOUT : WRITTEN))
+  assert.equal(seen, 2, '污染形态必须**读两次**才判 —— 只读一次就无从分辨"被改动"与"真失配"')
+  assert.equal(polluted?.kind, 'transient', '两次读字节不同 ⇒ 必须归 transient（读-写污染），不得归 dead')
+  const pollutedText = polluted.why + '：' + polluted.detail
+  assert.ok(
+    pollutedText.includes('读取期间该文件被改动'),
+    '污染形态的归因必须**点名"读取期间被改动"**；实际：' + pollutedText,
+  )
+  assert.ok(
+    !pollutedText.includes('把锚点更新到当前实现'),
+    '⛔ 污染形态**不得**给出"把锚点更新到当前实现"这条处置 —— 那正是本修法要消灭的"指错对象"：' + pollutedText,
+  )
+
+  /*
+   * ③ 真锚点失配：两次读**字节相同**（都是同一份旧文本）⇒ 必须仍报原归因（**不得退化**）。
+   *    ⚠ 这条是"改进"与"放宽"的分界线：它变绿即说明本判据把真缺陷也放过了。
+   */
+  let deadReads = 0
+  const dead = classifyAnchorMiss(synthetic, () => { deadReads++; return WITHOUT })
+  assert.equal(dead?.kind, 'dead', '两次读字节相同 ⇒ 必须归 dead（锚点真的不符），不得借污染之名叫它 transient')
+  assert.equal(deadReads, 2, '真失配形态同样读两次 —— 沿用旧口径的"只读一次"会让分流退化成一句归因')
+  const deadText = dead.why + '：' + dead.detail
+  assert.ok(
+    deadText.includes('把锚点更新到当前实现'),
+    '真失配必须**保留**原处置文案（不得因本次改动而丢失）；实际：' + deadText,
+  )
+  assert.ok(!deadText.includes('读取期间该文件被改动'), '真失配**不得**被归成并发窗口：' + deadText)
+
+  /*
+   * ④ 分叉性显式断言：只断言"各自含某个词"是不够的 —— 一个恒返回 dead 的实现也能让 ③ 通过。
+   */
+  assert.notEqual(polluted.kind, dead.kind, '两条因由必须是不同的 kind')
+  assert.notEqual(polluted.why, dead.why, '两条因由的 why 必须不同（否则读者仍无从分辨）')
+  assert.notEqual(polluted.detail, dead.detail, '两条因由的处置必须不同 —— 否则"分流"没落在读者看得见的地方')
+})
+
+test('耦合：门必须真的调用判据体（防止"只加函数不接线" —— 那份修复在盘上不生效）', () => {
+  const raw = readFileSync(new URL('./mutation-probe-health.test.mjs', import.meta.url), 'utf8')
+  /*
+   * ⚠⚠ **D1 修（2026-09-26 · `minimal` 复核发现，本席复现确认）**：
+   *   本判据的针串 `classifyAnchorMiss(m, () => readLf(` **同时出现在断言自己的消息文本里**
+   *   （"门必须**带真实读取器**调用判据体（形如 …）"那一行）⇒ 旧写法 `raw.includes(针)`
+   *   **恒真** ⇒ 把门架空成 `const verdict = null` 时，**本判据与本体判据双双全绿**（实测）。
+   *   修法（采纳 minimal 的最小改动，1 行）：判据一律走 **`stripStrings`** ——
+   *   先把字符串字面量（含消息）内容抹成空格再判，于是"消息里的针"不再喂饱自己。
+   *
+   * ⚠ 这是本席在**同一文件里第二次**踩自指坑，两处方向不同、修法同源，一并留档：
+   *   · **上一处（恒红）**：`!raw.includes(旧内联串)` —— 断言自己的**代码**就是出现点；
+   *   · **本处（恒真）**：`raw.includes(针)` —— 断言自己的**消息**是额外出现点。
+   *   共同的根：**判据的针串与判据自身的文本同处一个被扫描的字符串里**。
+   *   ⇒ 通用纪律：凡对本文件/其他源码做 `includes`/`split` 针判，**先 stripStrings**。
+   *
+   * ⚠ 与 t1/Z2 同族（z2 = 字符串字面量冒充调用；D1 = 消息字面量冒充接线），
+   *   本文件里所有同类点已在下方「D1 同族扫描」一节逐个处置。
+   */
+  const stripped = stripStrings(raw)
+  const CALL = 'classifyAnchorMiss('
+  const NEEDLE = CALL + 'm, () => readLf('
+  /*
+   * 把判据抽成一个**具名谓词**（不是为了好看）：下面那条负控必须检验**判据本身**，
+   * 而不是检验"另一份抄写的等价物"。若哪天有人把这里改回 `raw.includes`，
+   * 负控会**立刻转红** —— 这正是 D1 再回来的防线。
+   */
+  const gateWired = (text) => stripStrings(text).includes(NEEDLE)
+  const hits = stripped.split(CALL).length - 1
+  assert.ok(
+    hits >= 2,
+    '判据体至少要出现两次（定义 1 处 + 门 1 处），实际 ' + hits + ' 处 —— 为 1 说明门被还原成了旧的内联写法，'
+    + '本判据体只是个摆设，而上面那条自证**照样会绿**（它只测函数、不测接线）。',
+  )
+  assert.ok(
+    gateWired(raw),
+    '门必须**带真实读取器**调用判据体（形如 classifyAnchorMiss(m, () => readLf(...))）—— '
+    + '否则判据体读的不是工作区文件，"活锚点"这个结论无从成立。',
+  )
+  /*
+   * ── D1 常驻反例（**不碰磁盘**，与 Z2 的 impersonated 同手法）────────────────────
+   * 在内存里把门那一行换成 `const verdict = null`，同一个谓词必须判假。
+   * 判因：旧写法（raw + 消息里含针）在**这个输入上仍判真** ⇒ 本判据抓不到架空（实测双双全绿）。
+   */
+  const GATE_LINE = /\n\s*const verdict = classifyAnchorMiss\(m, \(\) => readLf\([^\n]*\n/
+  const hollowed = raw.replace(GATE_LINE, '\n    const verdict = null\n')
+  assert.notEqual(
+    hollowed,
+    raw,
+    'D1 负控前提：门调用行必须真的被替换掉（否则下面那条对照无意义，会以"假绿"的形式通过）',
+  )
+  assert.equal(
+    gateWired(hollowed),
+    false,
+    'D1 负控失败：门被架空成 const verdict = null 后，接线判据**仍判真** —— 它是恒真的。'
+    + '根因即"针串出现在断言自己的消息文本里"（raw.includes 被自己的消息喂饱）。',
+  )
+  /*
+   * 反向：旧的内联写法必须已经不在门里（它正是"指错对象"的载体）。
+   *
+   * ⚠⚠ **本串必须拼装、不得写成字面量**（本席落盘后实测踩到）：把整串直接写进断言，
+   *   断言**自己**就成了它的一个出现点 ⇒ `raw.includes(它)` 恒真 ⇒ 本条**恒红**。
+   *   这是本文件反复在剿的"自指假绿/假红"同一形态（锚点字符串被注释冒充：已踩过两次），
+   *   只是方向反过来：这里是**假红**。拼装后，源码里只有两个不完整的片段，
+   *   整串只存在于**运行时的内存**里。
+   */
+  const OLD_INLINE = ['if (!disk.includes(m.from))', 'dead.push('].join(' ')
+  assert.ok(
+    !raw.includes(OLD_INLINE),
+    '门里仍有旧的内联形态（' + OLD_INLINE + '）—— 归因分流没有真的接上（判据体是死的）',
+  )
+  /*
+   * R2 的**盘面级**接线同样要静态钉住。判因（本席负控 V4 实测）：
+   *   把 R2 里那一行换成一条"恒空的常量结果"（形如 `{ stale: [], fresh: leftovers }` 的
+   *   变体，此处**刻意不写出原串** —— 它会被下面的负向断言判成"仍在盘上"）后**套件仍然全绿** ——
+   *   因为盘面干净时"架空判定"与"没架空"输出完全一样（`[] === []`，空集上恒真）。
+   *   故这一方向**不能**靠运行时断言抓到，接线判据是它的唯一防线。
+   *   （纯函数的判别力已由上面的单元夹具在陈旧/新鲜/读不到/边界四个方向各钉一次，
+   *     盘面级活性另由夹具证明：造一个陈旧目录即转红、清掉即回绿。）
+   */
+  /*
+   * ⚠ 本串同样必须**拼装**（与上面 OLD_INLINE 同一个坑，本席第二次踩到 —— 留档）：
+   *   若把整串写成字面量，断言**自己**就成了它的出现点 ⇒ 恒真 ⇒ 本条恒绿 ⇒
+   *   V4（把调用换成常量）**抓不到**。实测：第一版就是这么写的，负控如实报了出来。
+   *   拼装后，源码里只有两个片段，整串只存在于运行时的内存里。
+   */
+  const R2_CALL_NEEDLE = ['splitRenderTmpResidue(', 'leftovers'].join('')
+  assert.ok(
+    raw.includes(R2_CALL_NEEDLE),
+    'R2 的盘面判定必须真的调用判据函数（而不是用常量结果顶替）。',
+  )
+  /*
+   * ⚠ 上面这一条**只做正向**，不给它配一条"反向：不得改成常量" —— 本席实测的取舍：
+   *   正向针已足以抓 V4（把调用换成常量 ⇒ 针消失 ⇒ 必红，负控实测 RED）；
+   *   而"反向"那条**在原理上就无法只自指自己**：`!raw.includes(X)` 里的 X 本身就在 raw 里
+   *   ⇒ 恒假 ⇒ 恒红。本席在同一处连踩两次（写成字面量一次、注释里留原串又一次），
+   *   最后发现**删掉它才是正确的** —— 添一条恒红的断言不是"更严"，是把门弄坏。
+   *   ⇒ 留档于此，免得下一个人再补一条反向断言。
+   */
 })
 
 test('反例自证：解析器对 CRLF 源的解析必须与 LF 一致（本文件的首要坑）', () => {
@@ -2425,9 +2664,175 @@ test('t1：静态判据不得被字符串字面量冒充（含「不得误伤」
    *   该界限**如实写在这里**，不声称已经完全不会漏。
    */
   const wiringNeedle = 'assertCallsAreReal(f2Lines, f2CallsIndependent'
+  /*
+   * ⚠⚠ **D1 同族第 2 处（本席主动扫描时发现，与 D1 同源）**：
+   *   本判据虽已用 `stripStrings`，但 `stripStrings` **只剥字符串、不剥注释** ——
+   *   而上面 :2656 的**注释**里就写着同一个针串（"把上面那行 assertCallsAreReal(…) 换成…"）。
+   *   于是"把调用行换成恒真断言"这个变异**仍被判真**（实测：目标行消失后判据仍 true）。
+   *   ⇒ 判据必须问一句**结构问题**，而不是找字符串：**本测试体内是否真的存在一处
+   *     "以 assertCallsAreReal( 开头的调用语句"**（不是注释、不是消息）。
+   *   取文本范围限定在**本测试体**内（从本 test( 起到文件内本测试结束），避免扫到别处。
+   */
+  const SELF_TEST_AT = srcLf.indexOf("test('t1：静态判据不得被字符串字面量冒充")
+  assert.ok(SELF_TEST_AT > 0, '先决条件：必须能在源码里定位本测试体（否则下面的取值域无从限定）')
+  const BODY_FROM = srcLf.indexOf(String.fromCharCode(10) + '  ', SELF_TEST_AT + 10)
+  const SELF_TEST_BODY = srcLf.slice(BODY_FROM)
+  /*
+   * 调用形态 = 行首缩进 + 针串 + 逗号（真调用一行的实参分隔）；注释行以 `*` 或 `//` 开头，
+   * 天然不匹配这个形态。字符串字面量里的同串由 stripStrings 先行抹掉。
+   */
+  const CALL_SHAPE = new RegExp('^\\s*' + wiringNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[,\\s]', 'm')
   assert.ok(
-    stripStrings(srcLf).split(NL).some((line) => line.includes(wiringNeedle)),
-    `t1 接线判据：源码里找不到「${wiringNeedle}」这处调用 ——`
-    + ' 落位自证可能已被架空（这正是 M3 实测到的形态：把调用行换成恒真断言，套件仍绿）',
+    CALL_SHAPE.test(stripStrings(SELF_TEST_BODY)),
+    't1 接线判据：本测试体内找不到「' + wiringNeedle + '」这处**调用语句**（注释与消息里的同串不算）—— '
+    + ' 落位自证可能已被架空（这正是 M3 实测到的形态：把调用行换成恒真断言，套件仍绿）。'
+    + ' ⚠ 本判据用"行首形态"而不是"文本里找得到"，因为后者会被**注释里的同串**喂饱（D1 同族第 2 处）。',
+  )
+  /*
+   * ⚠ D1 同族第 2 处的**负控**（不碰磁盘）：把调用行抹成注释形态，同一个正则必须判假。
+   *   旧口径（contains）在这个输入上**仍判真** —— 那正是它抓不到架空的原因。
+   */
+  const mutedCall = SELF_TEST_BODY.replace(
+    new RegExp('^(\\s*)' + 'assertCallsAreReal\\(f2Lines, f2CallsIndependent', 'm'),
+    '$1// assertCallsAreReal(f2Lines, f2CallsIndependent',
+  )
+  assert.notEqual(mutedCall, SELF_TEST_BODY, 'D1-2 负控前提：调用行必须真的被抹掉（否则下面那条对照无意义）')
+  assert.equal(
+    CALL_SHAPE.test(stripStrings(mutedCall)),
+    false,
+    'D1-2 负控失败：把调用行改成注释后接线判据**仍判真** —— 它被注释里的同串喂饱了。',
   )
 })
+
+/*
+ * ══ R2（s3 · 2026-09-26）：`test/.render-tmp/` 的**所有格**判据 ═══════════════════════════
+ *
+ * ## 判因（本席 2026-09-26 只读取证，实测）
+ *
+ * 该目录被**硬编码 + 跨实例共享**：`test/chat-composer-render.test.mjs:20`、
+ * `test/dispatch-panel-render.test.mjs:34`、`test/mode-badge-render.test.mjs:20` 三处都是
+ * 同一句 `new URL('./.render-tmp/', import.meta.url)`，子目录才 `mkdtempSync`。
+ * 实测（本轮只读命令 `Get-ChildItem test/.render-tmp`）：**6 个 `composer-*` 目录，
+ * LastWriteTime 全为 2026/9/20 11:39:57** —— 而各文件的清理点（`chat-composer-render.test.mjs:67,77`）
+ * 只 `rmSync(dir)`（子目录），**没有任何判据管这个共享目录本身**。
+ *
+ * ## 与 q1③ 的关系（为什么不是"重复造门"）
+ *
+ * `q1③` 修的是**`mkdtemp` 出来的进程唯一目录**（`mp-health-scratch-*` 的全局差集假红，
+ * 见本文件 f2 那条测试的注释）。本条管的是**另一个面**：**硬编码共享目录**的所有格。
+ * 两者**不是同一条判据**，而后者此前**零覆盖**。
+ *
+ * ## ⚠ 判据**只认本进程自己建的目录**（并发安全，与 q1③ 同一口径）
+ *
+ * 不比对"跑前/跑后目录集合差集"——那会把**并发的那一方**的在途目录算成自己的残留
+ * （accept 席实测过的假红形态）。故：
+ *   · 正常路径 ⇒ 该目录必须**为空**（残留即红 —— 判别力与 q1③ 同源）；
+ *   · ⚠ **并发语义（如实标注）**：一个进程正在跑渲染测试时，**另一个**进程跑本条会看到
+ *     对方的在途目录 ⇒ **假红**。这是本条**已知的、未消除的**边界：它属"读-写"这一类，
+ *     正是本会 @ 未闭环的那一半。处置：两条**分开断言**（见下），故读者能一眼分辨
+ *     "是残留"还是"是并发窗口"，不必先去怀疑判据坏了。
+ *   · 反向证据（可辨性）：断言里带上**每个残留项的 mtime**。陈旧（如 2026/9/20，即本轮实测的那 6 个）
+ *     ⇒ 残留；**刚刚**（秒级）⇒ 多半是在途并发窗口。
+ */
+/*
+ * ⚠ **判定必须抽成纯函数**（本席落盘后实测补，留档免得被改回内联）：
+ *   首版把判定内联在 test 体里 ⇒ 负控 **V4**（把 `filter` 改成恒假）**抓不到** ——
+ *   因为陈留清单为空时，把判定架空与不架空**输出完全一样**（`[] === []`）。
+ *   这正是本仓反复剿的"空集上恒真"形态。抽成纯函数 + 夹具之后，两个方向都可断言
+ *   （纯函数单元的 V4f/V4g/V4h + 真实盘面的 V4）。
+ *
+ * @param entries 形如 `{ name, isDir, mtimeMs }` 的项；`mtimeMs` 非有限数视为陈旧。
+ * @param nowMs   采样基准时刻（显式传入，不用 `Date.now()` —— 夹具要可确定性）。
+ * @param freshMs 在此窗口内的项视为"可能是在途并发"，**不判红只出声**。
+ * @returns `{ stale, fresh }`。
+ */
+function splitRenderTmpResidue(entries, nowMs, freshMs) {
+  const stale = []
+  const fresh = []
+  for (const e of entries) {
+    if (Number.isFinite(e.mtimeMs) && nowMs - e.mtimeMs < freshMs) fresh.push(e)
+    else stale.push(e)
+  }
+  return { stale, fresh }
+}
+
+test('R2 判定单元：陈旧 ⇒ stale；新鲜 ⇒ fresh；mtime 读不到 ⇒ stale（不许静默放过）', () => {
+  const now = 1_800_000_000_000
+  const h = 3_600_000
+  const r = splitRenderTmpResidue([
+    { name: 'old-by-a-year', isDir: true, mtimeMs: now - 365 * 24 * h },
+    { name: 'fresh-1s', isDir: true, mtimeMs: now - 1_000 },
+    { name: 'fresh-just-under', isDir: true, mtimeMs: now - (60_000 - 1) },
+    { name: 'stale-just-over', isDir: true, mtimeMs: now - (60_000 + 1) },
+    { name: 'unreadable', isDir: false, mtimeMs: Number.NaN },
+  ], now, 60_000)
+  assert.deepEqual(r.fresh.map((e) => e.name), ['fresh-1s', 'fresh-just-under'], '仅 60s 窗口内 ⇒ fresh')
+  assert.deepEqual(
+    r.stale.map((e) => e.name),
+    ['old-by-a-year', 'stale-just-over', 'unreadable'],
+    '陈旧项与"mtime 读不到的项"都必须判 stale —— 把读不到当成新鲜会让残留静默通过',
+  )
+  // 边界必须是闭区间的一侧：恰在第 60s 上算**陈旧**（宁可报红，不可静默）
+  assert.deepEqual(splitRenderTmpResidue([{ name: 'exact', isDir: true, mtimeMs: now - 60_000 }], now, 60_000).stale.map((e) => e.name), ['exact'], '恰好 60s ⇒ stale（不静默放过）')
+  // 空集不是"通过"的证据：本函数对空输入返回空 —— 判别力由上面几条夹具提供，不靠真实盘面
+  assert.deepEqual(splitRenderTmpResidue([], now, 60_000), { stale: [], fresh: [] })
+})
+
+test('R2 所有格：test/.render-tmp/ 不得残留子目录（陈旧项 = 真残留，新鲜项 = 并发窗口，分开报）', () => {
+  const tmpDir = new URL('./.render-tmp/', import.meta.url)
+  const relBase = 'test/.render-tmp/'
+  const leftovers = []
+  try {
+    for (const entry of readdirSync(tmpDir, { withFileTypes: true })) {
+      const full = new URL(`./.render-tmp/${entry.name}`, import.meta.url)
+      let mtimeMs = Number.NaN
+      try { mtimeMs = statSync(full).mtimeMs } catch { /* 竞态：并发进程正在收走它 —— 归"新鲜"一侧 */ }
+      leftovers.push({ name: entry.name, isDir: entry.isDirectory(), mtimeMs })
+    }
+  } catch (error) {
+    /*
+     * 目录不存在**不算红**：它与 `dispatch-ui.test.mjs:20` 那条"全新克隆上必须先自建目录"
+     * 的判据不冲突 —— 那条管的是**渲染测试自己会不会 mkdir**，本条管的是**跑完有没有留**。
+     * 但必须**显式**说明本次是"无目录"而不是"空的"（否则"没判"会被读成"判过了"）。
+     */
+    assert.equal(
+      error.code,
+      'ENOENT',
+      `读不到 ${relBase} 且不是"不存在"：${error.message} —— 本条的结论**未取得**（别读成通过）`,
+    )
+    return
+  }
+  /*
+   * 判据**只对"陈旧项"判红**：这正是上面"并发语义"那条边界的落点 ——
+   * 新鲜项（本次运行前后 60 秒内）可能是**并发进程的在途目录**，把它算成"残留"就是
+   * accept 席实测过的那种假红。陈旧项则**不可能**是在途窗口（没有哪个进程跑 5 分钟不清理）。
+   */
+  const FRESH_MS = 60_000
+  const { stale, fresh } = splitRenderTmpResidue(leftovers, Date.now(), FRESH_MS)
+  const stamp = (e) => (Number.isFinite(e.mtimeMs) ? '（mtime ' + new Date(e.mtimeMs).toISOString() + '）' : '（mtime 读不到）')
+  const render = (list) => list.map((e) => e.name + (e.isDir ? '/' : '') + stamp(e)).join('、')
+  assert.deepEqual(
+    stale.map((e) => e.name),
+    [],
+    `${relBase} 残留了 ${stale.length} 个子目录（陈旧 = 不是并发窗口）：${render(stale)}。`
+    + '该目录在仓库内且被 .gitignore 忽略（对 git 面零影响），但它是**共享固定路径**：'
+    + '残留会让"谁建的、谁该收"不可判（本轮实测的那 6 个 `composer-*` 即此形态）。'
+    + '修法：确认它清空后重跑；若某个渲染测试不收集，去该文件的 `cleanup()` 找。',
+  )
+  /*
+   * 新鲜项**不判红、但要出声**（否则"没判"会被读成"判过了"）。
+   *
+   * ⚠ 本席落盘后自查删掉了一句原打算放这里的"前提断言"
+   *   （`fresh.length === 0 || leftovers.length > 0`）—— 它**恒真**：
+   *   `fresh ⊆ leftovers`，故 `fresh.length > 0` 必然蕴含 `leftovers.length > 0`。
+   *   那正是本仓反复在剿的"空转断言"（看起来有前提、实际不裁任何东西）。
+   *   判别力改由上面那条单元夹具承担（陈旧/新鲜/读不到/边界 四类各自断言过）。
+   */
+  for (const e of fresh) {
+    globalThis.process.stderr.write(
+      `ℹ R2 未判（并发窗口？）：${relBase}${e.name} 的 mtime 在 ${FRESH_MS / 1000}s 内 —— `
+      + '可能是**另一个进程**正在跑渲染测试，本进程**没有**把它算成残留。\n',
+    )
+  }
+})
+
