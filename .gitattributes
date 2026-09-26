@@ -38,6 +38,7 @@
 *.tsx   text eol=lf
 *.mjs   text eol=lf
 *.js    text eol=lf
+*.cjs   text eol=lf
 *.json  text eol=lf
 *.jsonl text eol=lf
 *.md    text eol=lf
@@ -47,6 +48,12 @@
 
 # PowerShell 脚本：本仓当前为 LF 且实测可用，固定之（见文件头「边界」）
 *.ps1   text eol=lf
+
+# sourcemap：**不声明 binary** —— binary 会让 git diff 显示为 `Bin N -> M bytes`，
+# 把 sources 里路径形态的真实变化整个藏掉（shoucang 仓 2026-09-26 实测：正是这个
+# 盲点让 `file:///D:/FF/...` 绕过两道门进了公开仓）。它与 .js 同源同编码，按文本
+# 处理即可。同批口径统一见 shoucang/81501d5 与 project-nav/prompt-enhancer/video-transcribe。
+*.map   text eol=lf
 
 # 二进制件：禁止任何行尾转换（否则 git 会改写字节 ⇒ 产物损坏）
 # 实测本仓二进制件 19 个：.txt 日志 12（含 NUL）、.png 5、.jpg 2
