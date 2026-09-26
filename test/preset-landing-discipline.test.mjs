@@ -391,7 +391,12 @@ test('落点纪律：能力面判据 —— 受限进程里实测守卫读不到
      *   后者做不到，也不该声称 —— 这正是 v4 栽的那个坑（声明大、实检小）。
      */
     assert.equal(typeof homedir(), 'string', '受限轮里 os.homedir() 应照常可用（本判据不该越界声称"路径不可知"）')
-    assert.equal(typeof process.env.USERPROFILE, 'string', '受限轮里 USERPROFILE 应照常可用（同上）')
+    const homeEnvVar = process.platform === 'win32' ? process.env.USERPROFILE : process.env.HOME
+    assert.equal(
+      typeof homeEnvVar,
+      'string',
+      '受限轮里 ' + (process.platform === 'win32' ? 'USERPROFILE' : 'HOME') + ' 应照常可用（同上）',
+    )
     return
   }
   /*

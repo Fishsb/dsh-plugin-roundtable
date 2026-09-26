@@ -46,7 +46,7 @@ async function loadTsx(absPath) {
   return { mod, cleanup }
 }
 
-const COMPOSER = new URL('../src/client/ChatComposer.tsx', import.meta.url).pathname.replace(/^\//, '')
+const COMPOSER = new URL('../src/client/ChatComposer.tsx', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
 /** 文案桩：断言的是"这个键被真的渲染出来"，不是具体译文。 */
 const T = {

@@ -31,7 +31,7 @@ import ts from 'typescript'
  * 直接 `mkdtempSync` 会以 ENOENT 全红（实测过）。所以这里显式 `mkdirSync`
  * —— 否则就是"我本地绿、别人一跑就红"。
  */
-const TMP_DIR = new URL('./.render-tmp/', import.meta.url).pathname.replace(/^\//, '')
+const TMP_DIR = new URL('./.render-tmp/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 mkdirSync(TMP_DIR, { recursive: true })
 
 async function loadTsx(absPath) {
@@ -61,7 +61,7 @@ async function loadTsx(absPath) {
   return { mod, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
-const PANEL = new URL('../src/client/DispatchPanel.tsx', import.meta.url).pathname.replace(/^\//, '')
+const PANEL = new URL('../src/client/DispatchPanel.tsx', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
 /** 与 locales.ts 同名的文案键映射（测试只关心"键是否被真的渲染出来"）。 */
 const T = {
